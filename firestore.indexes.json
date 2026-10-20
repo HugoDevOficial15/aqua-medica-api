@@ -1,0 +1,138 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "Examen",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "Status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "DatePost",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "Medica",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "Activo",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "Nomina",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "Medica",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "Area",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "Nomina",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "Operador",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "nomina",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "datePost",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "Operador",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "nomina",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "datePost",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "Sugerencias",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "Nomina",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "DatePost",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "Sugerencias",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "Respuesta",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "DatePost",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    }
+  ],
+  "fieldOverrides": []
+}
