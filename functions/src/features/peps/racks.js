@@ -12,6 +12,22 @@ const {
   getDefaultResponse,
 } = require("./utils");
 
+const RACK_LOCK_COLLECTION = "locks";
+const RACK_LOCK_TIME_MS = 5 * 60 * 1000;
+
+function parseRackLockExpiration(lockData) {
+  if (!lockData || !lockData.expiresAt) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  if (typeof lockData.expiresAt.toDate === "function") {
+    return lockData.expiresAt.toDate().getTime();
+  }
+
+  const timestamp = new Date(lockData.expiresAt).getTime();
+  return Number.isNaN(timestamp) ? Number.NEGATIVE_INFINITY : timestamp;
+}
+
 const crearRack = onCall(async (request) => {
   try {
     const payload = buildRackDocPayload(request.data || {});
@@ -186,6 +202,70 @@ const vaciarRack = onCall(async (request) => {
   }
 });
 
+const lockRack = onCall(async (request) => {
+  try {
+    const payload = request.data || {};
+    const action = payload.action || "lock";
+    const rackId = getRackReference(payload.rackId || payload.id || null);
+    const user = payload.user || payload.usuario || {};
+
+    if (!rackId) {
+      throw new Error("Debe indicar el rackId.");
+    }
+
+    const db = getDb();
+    const lockRef = db.collection(RACK_LOCK_COLLECTION).doc(rackId);
+
+    if (action === "unlock") {
+      await lockRef.delete();
+      return getDefaultResponse(true, {rackId, isLocked: false}, "Rack desbloqueado correctamente");
+    }
+
+    await db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(lockRef);
+      if (snapshot.exists) {
+        const data = snapshot.data() || {};
+        const expiresAt = parseRackLockExpiration(data);
+        if (expiresAt > Date.now()) {
+          const ownerName = data.userName || data.user?.nombre || "otro usuario";
+          throw new Error(JSON.stringify({
+            code: "LOCK_EXISTS",
+            message: `Este rack ya está siendo utilizado por ${ownerName}.`,
+          }));
+        }
+      }
+
+      transaction.set(lockRef, {
+        rackId,
+        userId: user.id || user.userId || "system",
+        userName: user.nombre || user.name || user.userName || "Sistema",
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + RACK_LOCK_TIME_MS),
+        isLocked: true,
+        updatedAt: new Date(),
+      });
+    });
+
+    return getDefaultResponse(true, {rackId, isLocked: true}, "Rack bloqueado correctamente");
+  } catch (error) {
+    const message = error && error.message ? error.message : "Error bloqueando rack";
+    if (message.includes("LOCK_EXISTS")) {
+      let lockMessage = "Otro usuario ya está utilizando este rack.";
+      try {
+        const parsed = JSON.parse(message);
+        if (parsed && parsed.message) {
+          lockMessage = parsed.message;
+        }
+      } catch (errorParse) {
+        // No se hace nada y se conserva el mensaje por defecto.
+      }
+      return getDefaultResponse(false, {lock: false}, lockMessage);
+    }
+
+    return getDefaultResponse(false, null, message || "Error bloqueando rack");
+  }
+});
+
 module.exports = {
   crearRack,
   actualizarRack,
@@ -197,4 +277,5 @@ module.exports = {
   obtenerMovimientosPorFecha,
   suscribirMovimientos,
   vaciarRack,
+  lockRack,
 };
