@@ -1,5 +1,5 @@
 const DEFAULT_URL = process.env.API_BASE_URL ||
-  "http://localhost:5001/tu-project-id-de-firebase/us-central1/apiTestConnection";
+  "http://localhost:5001/sii-aqua-medica/us-central1/apiTestConnection";
 const DEFAULT_API_KEY = process.env.API_KEY || "aqua-medica-dev-key";
 
 async function testConnection(targetUrl = DEFAULT_URL, apiKey = DEFAULT_API_KEY) {
