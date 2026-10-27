@@ -1,4 +1,55 @@
-﻿const {onCall} = require("firebase-functions/v2/https");
+﻿const {onRequest} = require("firebase-functions/v2/https");
+
+function makeApiHandler(handler) {
+  const wrapped = onRequest(async (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key");
+
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    try {
+      const body = req && req.body && typeof req.body === "object" ? req.body : {};
+      const query = req && req.query && typeof req.query === "object" ? req.query : {};
+      const payload = body.data !== undefined ? body.data : body.payload !== undefined ? body.payload : Object.keys(body).length ? body : query;
+
+      const result = await handler({
+        data: payload && typeof payload === "object" ? payload : {},
+        auth: req && req.auth ? req.auth : null,
+        headers: req && req.headers ? req.headers : {},
+        query,
+      });
+
+      if (result && typeof result === "object" && "ok" in result) {
+        res.status(200).json(result);
+        return;
+      }
+
+      res.status(200).json({
+        ok: true,
+        data: result ?? null,
+        message: "Acción ejecutada correctamente",
+        timestamp: new Date().toISOString(),
+        statusCode: 200,
+      });
+    } catch (error) {
+      res.status(500).json({
+        ok: false,
+        data: null,
+        message: error && error.message ? error.message : "Error ejecutando la acción",
+        timestamp: new Date().toISOString(),
+        statusCode: 500,
+      });
+    }
+  });
+
+  wrapped.__rawHandler = handler;
+  return wrapped;
+}
+
 const {
   getDb,
   getCollectionForType,
@@ -75,7 +126,7 @@ function buildItemPayload(data) {
   return payload;
 }
 
-const crearMateriaPrima = onCall(async (request) => {
+const crearMateriaPrima = makeApiHandler(async (request) => {
   try {
     const payload = buildItemPayload(request.data);
     validateRequired(payload, ["nombre"], "Materia prima");
@@ -100,7 +151,7 @@ const crearMateriaPrima = onCall(async (request) => {
   }
 });
 
-const obtenerMateriaPrima = onCall(async (request) => {
+const obtenerMateriaPrima = makeApiHandler(async (request) => {
   try {
     const itemId = request.data && request.data.id ? request.data.id : null;
     if (!itemId) {
@@ -117,7 +168,7 @@ const obtenerMateriaPrima = onCall(async (request) => {
   }
 });
 
-const actualizarMateriaPrima = onCall(async (request) => {
+const actualizarMateriaPrima = makeApiHandler(async (request) => {
   try {
     const {id, updates} = request.data || {};
     if (!id) {
@@ -149,7 +200,7 @@ const actualizarMateriaPrima = onCall(async (request) => {
   }
 });
 
-const obtenerItemsPorTipo = onCall(async (request) => {
+const obtenerItemsPorTipo = makeApiHandler(async (request) => {
   try {
     const tipo = request.data && request.data.tipo ? normalizeItemType(request.data.tipo) : null;
     if (!tipo) {
@@ -164,7 +215,7 @@ const obtenerItemsPorTipo = onCall(async (request) => {
   }
 });
 
-const crearAcondicionamiento = onCall(async (request) => {
+const crearAcondicionamiento = makeApiHandler(async (request) => {
   try {
     const payload = buildItemPayload(request.data);
     validateRequired(payload, ["nombre"], "Material de acondicionamiento");
@@ -189,7 +240,7 @@ const crearAcondicionamiento = onCall(async (request) => {
   }
 });
 
-const obtenerAcondicionamiento = onCall(async (request) => {
+const obtenerAcondicionamiento = makeApiHandler(async (request) => {
   try {
     const itemId = request.data && request.data.id ? request.data.id : null;
     if (!itemId) {
@@ -205,7 +256,7 @@ const obtenerAcondicionamiento = onCall(async (request) => {
   }
 });
 
-const actualizarAcondicionamiento = onCall(async (request) => {
+const actualizarAcondicionamiento = makeApiHandler(async (request) => {
   try {
     const {id, updates} = request.data || {};
     if (!id) {
@@ -237,7 +288,7 @@ const actualizarAcondicionamiento = onCall(async (request) => {
   }
 });
 
-const crearProducto = onCall(async (request) => {
+const crearProducto = makeApiHandler(async (request) => {
   try {
     const payload = buildItemPayload(request.data);
     validateRequired(payload, ["nombre"], "Producto");
@@ -262,7 +313,7 @@ const crearProducto = onCall(async (request) => {
   }
 });
 
-const obtenerProducto = onCall(async (request) => {
+const obtenerProducto = makeApiHandler(async (request) => {
   try {
     const itemId = request.data && request.data.id ? request.data.id : null;
     if (!itemId) {
@@ -278,7 +329,7 @@ const obtenerProducto = onCall(async (request) => {
   }
 });
 
-const actualizarProducto = onCall(async (request) => {
+const actualizarProducto = makeApiHandler(async (request) => {
   try {
     const {id, updates} = request.data || {};
     if (!id) {

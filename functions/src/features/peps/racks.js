@@ -1,4 +1,55 @@
-const {onCall} = require("firebase-functions/v2/https");
+const {onRequest} = require("firebase-functions/v2/https");
+
+function makeApiHandler(handler) {
+  const wrapped = onRequest(async (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key");
+
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    try {
+      const body = req && req.body && typeof req.body === "object" ? req.body : {};
+      const query = req && req.query && typeof req.query === "object" ? req.query : {};
+      const payload = body.data !== undefined ? body.data : body.payload !== undefined ? body.payload : Object.keys(body).length ? body : query;
+
+      const result = await handler({
+        data: payload && typeof payload === "object" ? payload : {},
+        auth: req && req.auth ? req.auth : null,
+        headers: req && req.headers ? req.headers : {},
+        query,
+      });
+
+      if (result && typeof result === "object" && "ok" in result) {
+        res.status(200).json(result);
+        return;
+      }
+
+      res.status(200).json({
+        ok: true,
+        data: result ?? null,
+        message: "Acción ejecutada correctamente",
+        timestamp: new Date().toISOString(),
+        statusCode: 200,
+      });
+    } catch (error) {
+      res.status(500).json({
+        ok: false,
+        data: null,
+        message: error && error.message ? error.message : "Error ejecutando la acción",
+        timestamp: new Date().toISOString(),
+        statusCode: 500,
+      });
+    }
+  });
+
+  wrapped.__rawHandler = handler;
+  return wrapped;
+}
+
 const {
   getDb,
   RACK_COLLECTION,
@@ -28,7 +79,7 @@ function parseRackLockExpiration(lockData) {
   return Number.isNaN(timestamp) ? Number.NEGATIVE_INFINITY : timestamp;
 }
 
-const crearRack = onCall(async (request) => {
+const crearRack = makeApiHandler(async (request) => {
   try {
     const payload = buildRackDocPayload(request.data || {});
     validateRequired(
@@ -62,7 +113,7 @@ const crearRack = onCall(async (request) => {
   }
 });
 
-const actualizarRack = onCall(async (request) => {
+const actualizarRack = makeApiHandler(async (request) => {
   try {
     const {id, updates} = request.data || {};
     if (!id) {
@@ -84,7 +135,7 @@ const actualizarRack = onCall(async (request) => {
   }
 });
 
-const eliminarRack = onCall(async (request) => {
+const eliminarRack = makeApiHandler(async (request) => {
   try {
     const id = request.data && request.data.id ? request.data.id : null;
     if (!id) {
@@ -103,7 +154,7 @@ const eliminarRack = onCall(async (request) => {
   }
 });
 
-const obtenerRacks = onCall(async () => {
+const obtenerRacks = makeApiHandler(async () => {
   try {
     const snapshot = await getDb().collection(RACK_COLLECTION).orderBy("numeroRack", "asc").get();
     const racks = snapshot.docs.map((doc) => ({id: doc.id, ...doc.data()}));
@@ -113,11 +164,11 @@ const obtenerRacks = onCall(async () => {
   }
 });
 
-const suscribirRacks = onCall(async () => {
+const suscribirRacks = makeApiHandler(async () => {
   return getDefaultResponse(true, [], "Suscripción de racks disponible en Firestore real-time");
 });
 
-const registrarMovimiento = onCall(async (request) => {
+const registrarMovimiento = makeApiHandler(async (request) => {
   try {
     const payload = buildMovementRecord(request.data || {});
     validateRequired(payload, ["rackId", "itemId", "tipoMovimiento", "cantidad"], "Movimiento");
@@ -138,7 +189,7 @@ const registrarMovimiento = onCall(async (request) => {
   }
 });
 
-const obtenerMovimientosPorRack = onCall(async (request) => {
+const obtenerMovimientosPorRack = makeApiHandler(async (request) => {
   try {
     const rackId = getRackReference(
       request.data && request.data.rackId ? request.data.rackId : null,
@@ -157,7 +208,7 @@ const obtenerMovimientosPorRack = onCall(async (request) => {
   }
 });
 
-const obtenerMovimientosPorFecha = onCall(async (request) => {
+const obtenerMovimientosPorFecha = makeApiHandler(async (request) => {
   try {
     const {rackId, fechaInicio, fechaFin} = request.data || {};
     if (!rackId) {
@@ -178,11 +229,11 @@ const obtenerMovimientosPorFecha = onCall(async (request) => {
   }
 });
 
-const suscribirMovimientos = onCall(async () => {
+const suscribirMovimientos = makeApiHandler(async () => {
   return getDefaultResponse(true, [], "Suscripción de movimientos disponible en Firestore real-time");
 });
 
-const vaciarRack = onCall(async (request) => {
+const vaciarRack = makeApiHandler(async (request) => {
   try {
     const rackId = request.data && request.data.id ? request.data.id :
       request.data && request.data.rackId ? request.data.rackId : null;
@@ -202,7 +253,7 @@ const vaciarRack = onCall(async (request) => {
   }
 });
 
-const lockRack = onCall(async (request) => {
+const lockRack = makeApiHandler(async (request) => {
   try {
     const payload = request.data || {};
     const action = payload.action || "lock";

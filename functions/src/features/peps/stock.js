@@ -1,4 +1,55 @@
-const {onCall} = require("firebase-functions/v2/https");
+const {onRequest} = require("firebase-functions/v2/https");
+
+function makeApiHandler(handler) {
+  const wrapped = onRequest(async (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key");
+
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    try {
+      const body = req && req.body && typeof req.body === "object" ? req.body : {};
+      const query = req && req.query && typeof req.query === "object" ? req.query : {};
+      const payload = body.data !== undefined ? body.data : body.payload !== undefined ? body.payload : Object.keys(body).length ? body : query;
+
+      const result = await handler({
+        data: payload && typeof payload === "object" ? payload : {},
+        auth: req && req.auth ? req.auth : null,
+        headers: req && req.headers ? req.headers : {},
+        query,
+      });
+
+      if (result && typeof result === "object" && "ok" in result) {
+        res.status(200).json(result);
+        return;
+      }
+
+      res.status(200).json({
+        ok: true,
+        data: result ?? null,
+        message: "Acción ejecutada correctamente",
+        timestamp: new Date().toISOString(),
+        statusCode: 200,
+      });
+    } catch (error) {
+      res.status(500).json({
+        ok: false,
+        data: null,
+        message: error && error.message ? error.message : "Error ejecutando la acción",
+        timestamp: new Date().toISOString(),
+        statusCode: 500,
+      });
+    }
+  });
+
+  wrapped.__rawHandler = handler;
+  return wrapped;
+}
+
 const {
   getDb,
   STOCK_COLLECTION,
@@ -36,7 +87,7 @@ async function getItemDoc(itemId, tipoItem) {
   return snapshot.data();
 }
 
-const crearStock = onCall(async (request) => {
+const crearStock = makeApiHandler(async (request) => {
   try {
     const payload = request.data || {};
     validateRequired(payload, ["rackId", "itemId", "nombreItem", "tipoItem", "cantidadActual"], "Stock");
@@ -70,7 +121,7 @@ const crearStock = onCall(async (request) => {
   }
 });
 
-const actualizarCantidadStock = onCall(async (request) => {
+const actualizarCantidadStock = makeApiHandler(async (request) => {
   try {
     const payload = request.data || {};
     validateRequired(payload, ["rackId", "itemId", "cantidadActual"], "Stock");
@@ -95,7 +146,7 @@ const actualizarCantidadStock = onCall(async (request) => {
   }
 });
 
-const eliminarStock = onCall(async (request) => {
+const eliminarStock = makeApiHandler(async (request) => {
   try {
     const payload = request.data || {};
     validateRequired(payload, ["rackId", "itemId"], "Stock");
@@ -112,7 +163,7 @@ const eliminarStock = onCall(async (request) => {
   }
 });
 
-const actualizarColorStockPorItem = onCall(async (request) => {
+const actualizarColorStockPorItem = makeApiHandler(async (request) => {
   try {
     const payload = request && request.data ? request.data : {};
     const itemId = payload.itemId ? String(payload.itemId).trim() : "";
@@ -147,7 +198,7 @@ const actualizarColorStockPorItem = onCall(async (request) => {
   }
 });
 
-const obtenerStockPEPS = onCall(async (request) => {
+const obtenerStockPEPS = makeApiHandler(async (request) => {
   try {
     const payload = request && request.data ? request.data : {};
     const rackId = payload.rackId ? getRackReference(payload.rackId) : null;
@@ -169,7 +220,7 @@ const obtenerStockPEPS = onCall(async (request) => {
   }
 });
 
-const obtenerStockPorRack = onCall(async (request) => {
+const obtenerStockPorRack = makeApiHandler(async (request) => {
   try {
     const rackId = getRackReference(request.data && request.data.rackId ? request.data.rackId : null);
     if (!rackId) {
@@ -183,7 +234,7 @@ const obtenerStockPorRack = onCall(async (request) => {
   }
 });
 
-const descontarStockPEPS = onCall(async (request) => {
+const descontarStockPEPS = makeApiHandler(async (request) => {
   try {
     const payload = request.data || {};
     validateRequired(payload, ["rackId", "itemId", "cantidadSalida"], "Salida de stock");
@@ -215,7 +266,7 @@ const descontarStockPEPS = onCall(async (request) => {
   }
 });
 
-const trasladarStockPEPS = onCall(async (request) => {
+const trasladarStockPEPS = makeApiHandler(async (request) => {
   try {
     const payload = request.data || {};
     validateRequired(payload, ["rackOrigen", "rackDestino", "itemId", "cantidad"], "Traslado de stock");
@@ -278,11 +329,11 @@ const trasladarStockPEPS = onCall(async (request) => {
   }
 });
 
-const suscribirStock = onCall(async () => {
+const suscribirStock = makeApiHandler(async () => {
   return getDefaultResponse(true, [], "Suscripción de stock disponible en Firestore real-time");
 });
 
-const suscribirStockPorRack = onCall(async (request) => {
+const suscribirStockPorRack = makeApiHandler(async (request) => {
   try {
     const payload = request && request.data ? request.data : {};
     const rackId = payload.rackId ? getRackReference(payload.rackId) : null;
@@ -296,7 +347,7 @@ const suscribirStockPorRack = onCall(async (request) => {
   }
 });
 
-const refreshRackStockCaches = onCall(async () => {
+const refreshRackStockCaches = makeApiHandler(async () => {
   return getDefaultResponse(true, {refreshedAt: new Date().toISOString()}, "Cachés de rack stock actualizadas");
 });
 
