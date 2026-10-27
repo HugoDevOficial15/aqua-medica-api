@@ -17,3 +17,4 @@ exports.hello = onRequest((request, response) => {
     message: "AQUA Médica API funcionando",
   });
 });
+

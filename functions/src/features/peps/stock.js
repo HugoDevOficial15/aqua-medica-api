@@ -286,9 +286,8 @@ const suscribirStockPorRack = onCall(async (request) => {
   try {
     const payload = request && request.data ? request.data : {};
     const rackId = payload.rackId ? getRackReference(payload.rackId) : null;
-    const snapshot = rackId
-      ? await getStockCollection().where("rackId", "==", rackId).get()
-      : await getStockCollection().get();
+    const snapshot = rackId ? await getStockCollection().where("rackId", "==", rackId).get() :
+    await getStockCollection().get();
 
     const stock = snapshot.docs.map((doc) => ({id: doc.id, ...doc.data()}));
     return getDefaultResponse(true, stock, "Suscripción de stock por rack disponible en Firestore real-time");
