@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const {onRequest} = require("firebase-functions/v2/https");
 const peps = require("../features/peps");
 
@@ -14,6 +16,9 @@ const API_KEY = process.env.API_KEY || "aqua-medica-dev-key";
 const ALLOWED_ORIGINS = (
   process.env.ALLOWED_ORIGINS || DEFAULT_ALLOWED_ORIGINS.join(",")
 ).split(",").map((value) => value.trim()).filter(Boolean);
+const FUNCTION_OPTIONS = {
+  secrets: ["API_KEY", "ALLOWED_ORIGINS"],
+};
 
 function applyCors(req, res) {
   const origin = req.headers.origin;
@@ -69,7 +74,7 @@ function buildRequestInput(req, payload) {
   };
 }
 
-const apiHealth = onRequest((req, res) => {
+const apiHealth = onRequest(FUNCTION_OPTIONS, (req, res) => {
   applyCors(req, res);
 
   if (req.method === "OPTIONS") {
@@ -91,7 +96,7 @@ const apiHealth = onRequest((req, res) => {
   res.status(200).json(payload);
 });
 
-const apiGateway = onRequest(async (req, res) => {
+const apiGateway = onRequest(FUNCTION_OPTIONS, async (req, res) => {
   applyCors(req, res);
 
   if (req.method === "OPTIONS") {
@@ -152,7 +157,7 @@ const apiGateway = onRequest(async (req, res) => {
   }
 });
 
-const apiTestConnection = onRequest((req, res) => {
+const apiTestConnection = onRequest(FUNCTION_OPTIONS, (req, res) => {
   applyCors(req, res);
 
   if (req.method === "OPTIONS") {
@@ -177,7 +182,7 @@ const apiTestConnection = onRequest((req, res) => {
 });
 
 function createDirectEndpoint(name, actionHandler) {
-  return onRequest(async (req, res) => {
+  return onRequest(FUNCTION_OPTIONS, async (req, res) => {
     applyCors(req, res);
 
     if (req.method === "OPTIONS") {
