@@ -74,6 +74,14 @@ function buildRequestInput(req, payload) {
   };
 }
 
+function resolveActionHandler(actionHandler) {
+  if (!actionHandler || typeof actionHandler !== "function") {
+    return actionHandler;
+  }
+
+  return actionHandler.__rawHandler || actionHandler;
+}
+
 const apiHealth = onRequest(FUNCTION_OPTIONS, (req, res) => {
   applyCors(req, res);
 
@@ -132,14 +140,16 @@ const apiGateway = onRequest(FUNCTION_OPTIONS, async (req, res) => {
     }
 
     const actionHandler = peps[action];
-    if (!actionHandler || typeof actionHandler !== "function") {
+    const rawHandler = resolveActionHandler(actionHandler);
+
+    if (!rawHandler || typeof rawHandler !== "function") {
       res.status(404).json(
           createResponse(false, null, `La acción '${action}' no existe.`, 404),
       );
       return;
     }
 
-    const result = await actionHandler(buildRequestInput(req, payload));
+    const result = await rawHandler(buildRequestInput(req, payload));
     const httpResponse = result && typeof result === "object" && "ok" in result ?
       result :
       createResponse(true, result, "Acción ejecutada correctamente");
@@ -213,7 +223,8 @@ function createDirectEndpoint(name, actionHandler) {
         auth: req.auth || null,
         headers: req.headers,
       };
-      const result = await actionHandler(requestInput);
+      const rawHandler = resolveActionHandler(actionHandler);
+      const result = await rawHandler(requestInput);
       const httpResponse = result && typeof result === "object" && "ok" in result ?
         result :
         createResponse(true, result, `Función '${name}' ejecutada correctamente`);
