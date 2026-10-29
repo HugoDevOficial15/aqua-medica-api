@@ -14,7 +14,8 @@ function makeApiHandler(handler) {
     try {
       const body = req && req.body && typeof req.body === "object" ? req.body : {};
       const query = req && req.query && typeof req.query === "object" ? req.query : {};
-      const payload = body.data !== undefined ? body.data : body.payload !== undefined ? body.payload : Object.keys(body).length ? body : query;
+      const payload = body.data !== undefined ? body.data : body.payload !== undefined ? body.payload :
+      Object.keys(body).length ? body : query;
 
       const result = await handler({
         data: payload && typeof payload === "object" ? payload : {},
