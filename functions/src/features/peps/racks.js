@@ -14,7 +14,9 @@ function makeApiHandler(handler) {
     try {
       const body = req && req.body && typeof req.body === "object" ? req.body : {};
       const query = req && req.query && typeof req.query === "object" ? req.query : {};
-      const payload = body.data !== undefined ? body.data : body.payload !== undefined ? body.payload : Object.keys(body).length ? body : query;
+      const payload = body.data !== undefined ? body.data :
+        body.payload !== undefined ? body.payload :
+        Object.keys(body).length ? body : query;
 
       const result = await handler({
         data: payload && typeof payload === "object" ? payload : {},
@@ -259,6 +261,8 @@ const lockRack = makeApiHandler(async (request) => {
     const action = payload.action || "lock";
     const rackId = getRackReference(payload.rackId || payload.id || null);
     const user = payload.user || payload.usuario || {};
+    const currentUserId = user.id ?? user.uid ?? user.userId ?? null;
+    const currentUserName = user.nombre || user.name || user.userName || user.displayName || "Sistema";
 
     if (!rackId) {
       throw new Error("Debe indicar el rackId.");
@@ -272,13 +276,34 @@ const lockRack = makeApiHandler(async (request) => {
       return getDefaultResponse(true, {rackId, isLocked: false}, "Rack desbloqueado correctamente");
     }
 
+    let sameUserAlreadyLocked = false;
+
     await db.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(lockRef);
       if (snapshot.exists) {
         const data = snapshot.data() || {};
         const expiresAt = parseRackLockExpiration(data);
         if (expiresAt > Date.now()) {
-          const ownerName = data.userName || data.user?.nombre || "otro usuario";
+          const existingUserId = data.userId ?? data.user?.id ??
+            data.user?.uid ?? data.user?.userId ?? null;
+          if (
+            existingUserId !== null &&
+            currentUserId !== null &&
+            String(existingUserId) === String(currentUserId)
+          ) {
+            sameUserAlreadyLocked = true;
+            transaction.update(lockRef, {
+              userId: currentUserId,
+              userName: currentUserName,
+              expiresAt: new Date(Date.now() + RACK_LOCK_TIME_MS),
+              isLocked: true,
+              updatedAt: new Date(),
+            });
+            return;
+          }
+
+          const ownerName = data.userName || data.user?.nombre ||
+            data.user?.name || data.user?.userName || "otro usuario";
           throw new Error(JSON.stringify({
             code: "LOCK_EXISTS",
             message: `Este rack ya está siendo utilizado por ${ownerName}.`,
@@ -288,14 +313,18 @@ const lockRack = makeApiHandler(async (request) => {
 
       transaction.set(lockRef, {
         rackId,
-        userId: user.id || user.userId || "system",
-        userName: user.nombre || user.name || user.userName || "Sistema",
+        userId: currentUserId || "system",
+        userName: currentUserName,
         createdAt: new Date(),
         expiresAt: new Date(Date.now() + RACK_LOCK_TIME_MS),
         isLocked: true,
         updatedAt: new Date(),
       });
     });
+
+    if (sameUserAlreadyLocked) {
+      return getDefaultResponse(true, {rackId, isLocked: true}, "Rack bloqueado correctamente");
+    }
 
     return getDefaultResponse(true, {rackId, isLocked: true}, "Rack bloqueado correctamente");
   } catch (error) {

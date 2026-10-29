@@ -1,4 +1,4 @@
-﻿const {onRequest} = require("firebase-functions/v2/https");
+const {onRequest} = require("firebase-functions/v2/https");
 
 function makeApiHandler(handler) {
   const wrapped = onRequest(async (req, res) => {
@@ -14,7 +14,9 @@ function makeApiHandler(handler) {
     try {
       const body = req && req.body && typeof req.body === "object" ? req.body : {};
       const query = req && req.query && typeof req.query === "object" ? req.query : {};
-      const payload = body.data !== undefined ? body.data : body.payload !== undefined ? body.payload : Object.keys(body).length ? body : query;
+      const payload = body.data !== undefined ? body.data :
+        body.payload !== undefined ? body.payload :
+        Object.keys(body).length ? body : query;
 
       const result = await handler({
         data: payload && typeof payload === "object" ? payload : {},
@@ -63,19 +65,45 @@ const {
 
 const ITEM_ALLOWED_FIELDS = [
   "id",
+  "itemId",
   "nombre",
   "tipo",
   "unidad",
+  "tipoUnidad",
+  "estado",
+  "estatus",
+  "activo",
+  "descripcion",
   "lote",
   "color",
   "color2",
   "cantidadActual",
   "rackId",
-  "itemId",
   "fechaEntrada",
   "fechaCreacion",
   "fechaActualizacion",
 ];
+
+function normalizeStatusValue(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === "activo" || normalized === "inactivo") {
+    return normalized;
+  }
+
+  if (normalized === "true" || normalized === "1") {
+    return "activo";
+  }
+
+  if (normalized === "false" || normalized === "0") {
+    return "inactivo";
+  }
+
+  return null;
+}
 
 async function sincronizarNombreEnStockPorItem({itemId, nombre, tipoItem = null}) {
   if (!itemId || !nombre) {
@@ -111,12 +139,32 @@ async function sincronizarNombreEnStockPorItem({itemId, nombre, tipoItem = null}
 
 function buildItemPayload(data) {
   const payload = sanitizePayload(data || {}, ITEM_ALLOWED_FIELDS);
+
   if (payload.tipo) {
     payload.tipo = normalizeItemType(payload.tipo);
   }
+
   if (payload.fechaEntrada) {
     payload.fechaEntrada = normalizeDate(payload.fechaEntrada);
   }
+
+  const explicitStatus = normalizeStatusValue(
+      payload.estado !== undefined ? payload.estado :
+      payload.estatus !== undefined ? payload.estatus :
+      payload.activo,
+  );
+
+  if (explicitStatus) {
+    payload.estado = explicitStatus;
+    payload.estatus = explicitStatus;
+    payload.activo = explicitStatus === "activo";
+  } else if (Object.prototype.hasOwnProperty.call(payload, "activo")) {
+    const active = Boolean(payload.activo);
+    payload.estado = active ? "activo" : "inactivo";
+    payload.estatus = payload.estado;
+    payload.activo = active;
+  }
+
   if (!payload.fechaCreacion) {
     payload.fechaCreacion = new Date().toISOString();
   }

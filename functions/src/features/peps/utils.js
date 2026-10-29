@@ -1,4 +1,4 @@
-﻿const admin = require("firebase-admin");
+const admin = require("firebase-admin");
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -108,6 +108,8 @@ function buildRackDocPayload(payload) {
     "tipoAlmacenamiento",
     "tipoAsignacion",
     "ubicacionTipo",
+    "itemAsignado",
+    "itemAsignadoId",
     "pesoMaximoMateriaPrima",
     "pesoMaximoMaterialAcondicionamiento",
     "pesoMaximoProductoTerminado",
