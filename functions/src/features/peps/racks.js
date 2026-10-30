@@ -231,8 +231,22 @@ const obtenerMovimientosPorFecha = makeApiHandler(async (request) => {
   }
 });
 
-const suscribirMovimientos = makeApiHandler(async () => {
-  return getDefaultResponse(true, [], "Suscripción de movimientos disponible en Firestore real-time");
+const suscribirMovimientos = makeApiHandler(async (request) => {
+  try {
+    const payload = request && request.data ? request.data : {};
+    const rackId = payload.rackId ? getRackReference(payload.rackId) : null;
+    let query = getDb().collection(MOVEMENTS_COLLECTION);
+    if (rackId) {
+      query = query.where("rackId", "==", rackId);
+    }
+    const snapshot = await query.orderBy("createdAt", "desc").get();
+    const movimientos = snapshot.docs.map((doc) => ({id: doc.id, ...doc.data()}));
+    return getDefaultResponse(true, movimientos, rackId ?
+      "Movimientos del rack obtenidos en tiempo real" :
+      "Movimientos disponibles en Firestore real-time");
+  } catch (error) {
+    return getDefaultResponse(false, [], error.message || "Error consultando movimientos");
+  }
 });
 
 const vaciarRack = makeApiHandler(async (request) => {
