@@ -15,7 +15,7 @@ function makeApiHandler(handler) {
       const body = req && req.body && typeof req.body === "object" ? req.body : {};
       const query = req && req.query && typeof req.query === "object" ? req.query : {};
       const payload = body.data !== undefined ? body.data : body.payload !== undefined ? body.payload :
-        Object.keys(body).length ? body : query;
+      Object.keys(body).length ? body : query;
 
       const result = await handler({
         data: payload && typeof payload === "object" ? payload : {},
@@ -54,6 +54,7 @@ function makeApiHandler(handler) {
 const {
   getDb,
   STOCK_COLLECTION,
+  MOVEMENTS_COLLECTION,
   validateNumeric,
   validateRequired,
   normalizeDate,
@@ -65,6 +66,112 @@ function getStockCollection() {
   return getDb().collection(STOCK_COLLECTION);
 }
 
+function normalizeRackMaterialType(rack = {}) {
+  const type = String(
+    rack.tipoMaterialAsignado ||
+    rack.tipoMaterial ||
+    rack.tipoItemAsignado ||
+    rack.itemAsignado ||
+    rack.tipoAsignacion ||
+    rack.tipoAlmacenamiento ||
+    rack.tipoItem ||
+    "",
+  ).trim().toLowerCase();
+
+  return type || "";
+}
+
+function determineRackLotStatus(rack = {}, stockItems = []) {
+  const assignedType = normalizeRackMaterialType(rack);
+  const activeStock = (stockItems || []).filter((item) => Number(item && item.cantidadActual || 0) > 0);
+
+  if (activeStock.length === 0) {
+    return {
+      estadoLote: assignedType || "sin_asignacion",
+      loteEnUso: assignedType ? true : false,
+      estadoTemporal: false,
+      tipoAsignacion: assignedType || "",
+    };
+  }
+
+  const uniqueTypes = [...new Set(activeStock.map((item) => String(item && item.tipoItem || "").trim().toLowerCase()))].filter(Boolean);
+  const isLotInUse = uniqueTypes.length > 0 && uniqueTypes.every((type) => type === assignedType);
+
+  if (isLotInUse) {
+    return {
+      estadoLote: "en_uso",
+      loteEnUso: true,
+      estadoTemporal: false,
+      tipoAsignacion: "lote_en_uso",
+    };
+  }
+
+  return {
+    estadoLote: "temporal",
+    loteEnUso: false,
+    estadoTemporal: true,
+    tipoAsignacion: "ubicacion_temporal",
+  };
+}
+
+async function registrarMovimientoStock(movement) {
+  const db = getDb();
+  const baseMovement = {
+    fecha: normalizeDate(movement && movement.fecha ? movement.fecha : new Date(), new Date()),
+    createdAt: new Date().toISOString(),
+    ...movement,
+    cantidad: Number(movement && movement.cantidad !== undefined ? movement.cantidad : 0),
+    observacion: movement && movement.observacion ? String(movement.observacion) : "",
+    usuario: movement && movement.usuario ? movement.usuario : {id: "system", nombre: "Sistema"},
+  };
+
+  if (baseMovement.tipoMovimiento === "traslado" && baseMovement.rackOrigen && baseMovement.rackDestino) {
+    const parentId = `mov_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const salida = {
+      ...baseMovement,
+      id: `${parentId}_salida`,
+      rackId: baseMovement.rackOrigen,
+      rackOrigenId: baseMovement.rackOrigen,
+      rackDestinoId: baseMovement.rackDestino,
+      rackDestinoNumero: baseMovement.rackDestinoNumero || null,
+      rackOrigenNumero: baseMovement.rackOrigenNumero || null,
+      ubicacionOrigen: baseMovement.ubicacionOrigen || null,
+      ubicacionDestino: baseMovement.ubicacionDestino || null,
+      direccion: "salida",
+      movimientoRelacion: parentId,
+      observacion: `Traslado saliente del rack ${baseMovement.rackOrigen} hacia ${baseMovement.rackDestino}`,
+    };
+    const entrada = {
+      ...baseMovement,
+      id: `${parentId}_entrada`,
+      rackId: baseMovement.rackDestino,
+      rackOrigenId: baseMovement.rackOrigen,
+      rackDestinoId: baseMovement.rackDestino,
+      rackDestinoNumero: baseMovement.rackDestinoNumero || null,
+      rackOrigenNumero: baseMovement.rackOrigenNumero || null,
+      ubicacionOrigen: baseMovement.ubicacionOrigen || null,
+      ubicacionDestino: baseMovement.ubicacionDestino || null,
+      direccion: "entrada",
+      movimientoRelacion: parentId,
+      observacion: `Traslado entrante al rack ${baseMovement.rackDestino} desde ${baseMovement.rackOrigen}`,
+    };
+
+    const salidaRef = db.collection(MOVEMENTS_COLLECTION).doc(salida.id);
+    const entradaRef = db.collection(MOVEMENTS_COLLECTION).doc(entrada.id);
+    await salidaRef.set(salida);
+    await entradaRef.set(entrada);
+    return [salida, entrada];
+  }
+
+  const ref = db.collection(MOVEMENTS_COLLECTION).doc();
+  const registro = {
+    ...baseMovement,
+    id: ref.id,
+  };
+  await ref.set(registro);
+  return [registro];
+}
+
 async function ensureRackExists(rackId) {
   const dbInstance = getDb();
   const rack = await dbInstance.collection("pepsRacks").doc(rackId).get();
@@ -73,26 +180,10 @@ async function ensureRackExists(rackId) {
   }
 }
 
-// async function getItemDoc(itemId, tipoItem) {
-//   const db = getDb();
-//   const collectionMap = {
-//     materia_prima: "pepsMateriaPrima",
-//     material_acondicionamiento: "pepsMaterialAcondicionamiento",
-//     producto_terminado: "pepsProductoTerminado",
-//   };
-//   const collection = collectionMap[tipoItem] || "pepsMateriaPrima";
-//   const snapshot = await db.collection(collection).doc(itemId).get();
-//   if (!snapshot.exists) {
-//     throw new Error("El item indicado no existe.");
-//   }
-//   return snapshot.data();
-// }
-
 function getRackCapacityMap(rack = {}) {
   return {
     materia_prima: Number(rack.pesoMaximoMateriaPrima ?? rack["pesoMaximo-materiaPrima"] ?? 0),
-    material_acondicionamiento: Number(rack.pesoMaximoMaterialAcondicionamiento ??
-      rack["pesoMaximo-materialAcondicionamiento"] ?? 0),
+    material_acondicionamiento: Number(rack.pesoMaximoMaterialAcondicionamiento ?? rack["pesoMaximo-materialAcondicionamiento"] ?? 0),
     producto_terminado: Number(rack.pesoMaximoProductoTerminado ?? rack["pesoMaximo-productoTerminado"] ?? 0),
   };
 }
@@ -101,8 +192,8 @@ function calculateRackOccupancy(rack = {}, stockItems = []) {
   const capacityByType = getRackCapacityMap(rack);
   const stockByType = Object.keys(capacityByType).reduce((acc, type) => {
     acc[type] = (stockItems || [])
-        .filter((item) => String(item && item.tipoItem || "") === type)
-        .reduce((total, item) => total + Number(item && item.cantidadActual || 0), 0);
+      .filter((item) => String(item && item.tipoItem || "") === type)
+      .reduce((total, item) => total + Number(item && item.cantidadActual || 0), 0);
     return acc;
   }, {});
 
@@ -112,10 +203,10 @@ function calculateRackOccupancy(rack = {}, stockItems = []) {
   }, {});
 
   const espacioOcupado = Number(
-      Math.min(
-          100,
-          Object.values(ocupacionPorTipo).reduce((sum, value) => sum + Number(value || 0), 0),
-      ).toFixed(2),
+    Math.min(
+      100,
+      Object.values(ocupacionPorTipo).reduce((sum, value) => sum + Number(value || 0), 0),
+    ).toFixed(2),
   );
 
   return {
@@ -128,43 +219,50 @@ function calculateRackOccupancy(rack = {}, stockItems = []) {
 async function syncRackOccupancy(rackId, rackOverride = null, stockItemsOverride = null) {
   const db = getDb();
   const rackRef = db.collection("pepsRacks").doc(rackId);
-  const rackSnapshot = rackOverride ? {exists: true, data: () => rackOverride} :
-  await rackRef.get();
+  const rackSnapshot = rackOverride ? {exists: true, data: () => rackOverride} : await rackRef.get();
   if (!rackSnapshot || !rackSnapshot.exists) {
     return null;
   }
 
   const rackData = rackSnapshot.data() || {};
-  const stockItems = stockItemsOverride ??
-    (await getStockCollection().where("rackId", "==", rackId).get()).docs.map((doc) => ({id: doc.id, ...doc.data()}));
+  const stockItems = stockItemsOverride ?? (await getStockCollection().where("rackId", "==", rackId).get()).docs.map((doc) => ({id: doc.id, ...doc.data()}));
   const occupancy = calculateRackOccupancy(rackData, stockItems);
+  const lotStatus = determineRackLotStatus(rackData, stockItems);
 
   await rackRef.update({
     espacioOcupado: occupancy.espacioOcupado,
     ocupacionPorTipo: occupancy.ocupacionPorTipo,
+    tipoMaterialAsignado: normalizeRackMaterialType(rackData) || rackData.tipoMaterialAsignado || "",
+    tipoAsignacion: lotStatus.tipoAsignacion,
+    estadoLote: lotStatus.estadoLote,
+    loteEnUso: lotStatus.loteEnUso,
+    estadoTemporal: lotStatus.estadoTemporal,
     fechaActualizacion: new Date().toISOString(),
   });
 
   return {
     espacioOcupado: occupancy.espacioOcupado,
     ocupacionPorTipo: occupancy.ocupacionPorTipo,
+    estadoLote: lotStatus.estadoLote,
+    loteEnUso: lotStatus.loteEnUso,
+    estadoTemporal: lotStatus.estadoTemporal,
   };
 }
 
 async function getStockLinesByRackAndItem(rackId, itemId) {
   const snapshot = await getStockCollection()
-      .where("rackId", "==", rackId)
-      .where("itemId", "==", String(itemId).trim())
-      .get();
+    .where("rackId", "==", rackId)
+    .where("itemId", "==", String(itemId).trim())
+    .get();
 
   return snapshot.docs
-      .map((doc) => ({id: doc.id, ...doc.data()}))
-      .filter((row) => Number(row && row.cantidadActual || 0) > 0)
-      .sort((a, b) => {
-        const orderA = String(a.fechaEntrada || "");
-        const orderB = String(b.fechaEntrada || "");
-        return orderA.localeCompare(orderB);
-      });
+    .map((doc) => ({id: doc.id, ...doc.data()}))
+    .filter((row) => Number(row && row.cantidadActual || 0) > 0)
+    .sort((a, b) => {
+      const orderA = String(a.fechaEntrada || a.fechaCreacion || "");
+      const orderB = String(b.fechaEntrada || b.fechaCreacion || "");
+      return orderA.localeCompare(orderB) || String(a.id || "").localeCompare(String(b.id || ""));
+    });
 }
 
 const crearStock = makeApiHandler(async (request) => {
@@ -185,13 +283,13 @@ const crearStock = makeApiHandler(async (request) => {
 
     let stock;
     const exactMatch = await collection
-        .where("rackId", "==", rackId)
-        .where("itemId", "==", itemId)
-        .where("tipoItem", "==", tipoItem)
-        .where("lote", "==", lote)
-        .where("numeroAnalisis", "==", numeroAnalisis)
-        .limit(1)
-        .get();
+      .where("rackId", "==", rackId)
+      .where("itemId", "==", itemId)
+      .where("tipoItem", "==", tipoItem)
+      .where("lote", "==", lote)
+      .where("numeroAnalisis", "==", numeroAnalisis)
+      .limit(1)
+      .get();
 
     if (!exactMatch.empty) {
       const existingDoc = exactMatch.docs[0];
@@ -203,10 +301,7 @@ const crearStock = makeApiHandler(async (request) => {
         nombreItem: payload.nombreItem || existing.nombreItem,
         fechaActualizacion: new Date().toISOString(),
       });
-      stock = {
-        id: existingDoc.id, ...existing, cantidadActual: updatedCantidad, unidad: payload.unidad ||
-          existing.unidad || "", nombreItem: payload.nombreItem || existing.nombreItem,
-      };
+      stock = {id: existingDoc.id, ...existing, cantidadActual: updatedCantidad, unidad: payload.unidad || existing.unidad || "", nombreItem: payload.nombreItem || existing.nombreItem};
     } else {
       const ref = collection.doc();
       stock = {
@@ -236,6 +331,21 @@ const crearStock = makeApiHandler(async (request) => {
       await syncRackOccupancy(rackId, rack, rackStock);
     }
 
+    await registrarMovimientoStock({
+      rackId,
+      itemId,
+      nombreItem: payload.nombreItem,
+      tipoItem,
+      cantidad: cantidad,
+      lote,
+      numeroAnalisis,
+      tipoMovimiento: "entrada",
+      observacion: "Entrada de material registrada por sistema",
+      usuario: payload.usuario || {id: "system", nombre: "Sistema"},
+      stockAnterior: 0,
+      stockFinal: Number(stock.cantidadActual || 0),
+    });
+
     return getDefaultResponse(true, stock, "Stock creado correctamente");
   } catch (error) {
     return getDefaultResponse(false, null, error.message || "Error creando stock");
@@ -257,11 +367,11 @@ const actualizarCantidadStock = makeApiHandler(async (request) => {
       ref = getStockCollection().doc(stockId);
     } else {
       const matches = await getStockCollection()
-          .where("rackId", "==", rackId)
-          .where("itemId", "==", String(payload.itemId).trim())
-          .orderBy("fechaEntrada", "asc")
-          .limit(1)
-          .get();
+        .where("rackId", "==", rackId)
+        .where("itemId", "==", String(payload.itemId).trim())
+        .orderBy("fechaEntrada", "asc")
+        .limit(1)
+        .get();
       if (matches.empty) {
         throw new Error("No existe stock para este rack e item.");
       }
@@ -327,9 +437,9 @@ const eliminarStock = makeApiHandler(async (request) => {
     }
 
     const matches = await getStockCollection()
-        .where("rackId", "==", rackId)
-        .where("itemId", "==", String(payload.itemId).trim())
-        .get();
+      .where("rackId", "==", rackId)
+      .where("itemId", "==", String(payload.itemId).trim())
+      .get();
 
     if (matches.empty) {
       throw new Error("No existe stock para este rack e item.");
@@ -404,8 +514,8 @@ const obtenerStockPEPS = makeApiHandler(async (request) => {
 
     const snapshot = await query.get();
     const stock = snapshot.docs
-        .map((doc) => ({id: doc.id, ...doc.data()}))
-        .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
+      .map((doc) => ({id: doc.id, ...doc.data()}))
+      .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
     return getDefaultResponse(true, stock, "Stock PEPS obtenido");
   } catch (error) {
     return getDefaultResponse(false, [], error.message || "Error obteniendo stock PEPS");
@@ -420,12 +530,12 @@ const obtenerStockPorRack = makeApiHandler(async (request) => {
       throw new Error("Debe indicar el rackId.");
     }
     const snapshot = await getStockCollection()
-        .where("rackId", "==", rackId)
-        .get();
+      .where("rackId", "==", rackId)
+      .get();
     const stock = snapshot.docs
-        .map((doc) => ({id: doc.id, ...doc.data()}))
-        .filter((item) => Number(item.cantidadActual || 0) > 0)
-        .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
+      .map((doc) => ({id: doc.id, ...doc.data()}))
+      .filter((item) => Number(item.cantidadActual || 0) > 0)
+      .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
     return getDefaultResponse(true, stock, "Stock por rack obtenido");
   } catch (error) {
     return getDefaultResponse(false, [], error.message || "Error obteniendo stock por rack");
@@ -449,20 +559,22 @@ const obtenerOcupacionRack = makeApiHandler(async (request) => {
     const stockSnapshot = await getStockCollection().where("rackId", "==", rackId).get();
     const stockItems = stockSnapshot.docs.map((doc) => ({id: doc.id, ...doc.data()}));
     const occupancy = calculateRackOccupancy(rack, stockItems);
+    const lotStatus = determineRackLotStatus(rack, stockItems);
 
     return getDefaultResponse(true, {
       rackId,
       capacidad: getRackCapacityMap(rack),
       stockActual: {
-        materia_prima: stockItems.filter((item) => item.tipoItem === "materia_prima")
-            .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0),
-        material_acondicionamiento: stockItems.filter((item) => item.tipoItem === "material_acondicionamiento")
-            .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0),
-        producto_terminado: stockItems.filter((item) => item.tipoItem === "producto_terminado")
-            .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0),
+        materia_prima: stockItems.filter((item) => item.tipoItem === "materia_prima").reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0),
+        material_acondicionamiento: stockItems.filter((item) => item.tipoItem === "material_acondicionamiento").reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0),
+        producto_terminado: stockItems.filter((item) => item.tipoItem === "producto_terminado").reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0),
       },
       ocupacionPorTipo: occupancy.ocupacionPorTipo,
       espacioOcupado: occupancy.espacioOcupado,
+      estadoLote: lotStatus.estadoLote,
+      loteEnUso: lotStatus.loteEnUso,
+      estadoTemporal: lotStatus.estadoTemporal,
+      tipoAsignacion: lotStatus.tipoAsignacion,
     }, "Ocupación del rack calculada");
   } catch (error) {
     return getDefaultResponse(false, null, error.message || "Error calculando ocupación del rack");
@@ -530,7 +642,22 @@ const descontarStockPEPS = makeApiHandler(async (request) => {
     }
 
     const remainingTotal = (await getStockLinesByRackAndItem(rackId, itemId))
-        .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0);
+      .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0);
+
+    await registrarMovimientoStock({
+      rackId,
+      itemId,
+      nombreItem: detalle[0] && detalle[0].nombreItem ? detalle[0].nombreItem : payload.nombreItem || "",
+      tipoItem: payload.tipoItem || "",
+      cantidad: cantidadSalida,
+      lote: detalle.map((entry) => entry.lote).filter(Boolean).join(", ") || payload.lote || "",
+      tipoMovimiento: "salida",
+      observacion: `Salida de stock por FIFO desde rack ${rackId}`,
+      usuario: payload.usuario || {id: "system", nombre: "Sistema"},
+      stockAnterior: cantidadSalida + remainingTotal,
+      stockFinal: remainingTotal,
+      detalle,
+    });
 
     return getDefaultResponse(true, {
       rackId,
@@ -566,9 +693,9 @@ const trasladarStockPEPS = makeApiHandler(async (request) => {
     }
 
     const destinoMatches = await getStockCollection()
-        .where("rackId", "==", rackDestino)
-        .where("itemId", "==", String(payload.itemId).trim())
-        .get();
+      .where("rackId", "==", rackDestino)
+      .where("itemId", "==", String(payload.itemId).trim())
+      .get();
 
     const destinoMap = new Map();
     destinoMatches.docs.forEach((doc) => {
@@ -653,9 +780,25 @@ const trasladarStockPEPS = makeApiHandler(async (request) => {
     }
 
     const stockOrigenFinal = (await getStockLinesByRackAndItem(rackOrigen, payload.itemId))
-        .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0);
+      .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0);
     const stockDestinoFinal = (await getStockLinesByRackAndItem(rackDestino, payload.itemId))
-        .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0);
+      .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0);
+
+    await registrarMovimientoStock({
+      rackId: rackDestino,
+      rackOrigen,
+      rackDestino,
+      itemId: String(payload.itemId).trim(),
+      nombreItem: payload.nombreItem || "",
+      tipoItem: payload.tipoItem || "",
+      cantidad,
+      lote: payload.lote || "",
+      tipoMovimiento: "traslado",
+      observacion: `Traslado de stock del rack ${rackOrigen} al rack ${rackDestino}`,
+      usuario: payload.usuario || {id: "system", nombre: "Sistema"},
+      stockAnterior: stockOrigenFinal + cantidad,
+      stockFinal: stockDestinoFinal,
+    });
 
     return getDefaultResponse(true, {
       rackOrigen,
@@ -680,9 +823,9 @@ const suscribirStock = makeApiHandler(async (request) => {
     }
     const snapshot = await query.get();
     const stock = snapshot.docs
-        .map((doc) => ({id: doc.id, ...doc.data()}))
-        .filter((item) => Number(item.cantidadActual || 0) > 0)
-        .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
+      .map((doc) => ({id: doc.id, ...doc.data()}))
+      .filter((item) => Number(item.cantidadActual || 0) > 0)
+      .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
     return getDefaultResponse(true, stock, rackId ?
       "Stock del rack obtenido en tiempo real" :
       "Stock disponible en Firestore real-time");
@@ -699,9 +842,9 @@ const suscribirStockPorRack = makeApiHandler(async (request) => {
       await getStockCollection().get();
 
     const stock = snapshot.docs
-        .map((doc) => ({id: doc.id, ...doc.data()}))
-        .filter((item) => Number(item.cantidadActual || 0) > 0)
-        .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
+      .map((doc) => ({id: doc.id, ...doc.data()}))
+      .filter((item) => Number(item.cantidadActual || 0) > 0)
+      .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
     return getDefaultResponse(true, stock, "Suscripción de stock por rack disponible en Firestore real-time");
   } catch (error) {
     return getDefaultResponse(false, [], error.message || "Error consultando stock por rack");

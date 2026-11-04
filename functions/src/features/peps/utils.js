@@ -110,6 +110,12 @@ function buildRackDocPayload(payload) {
     "ubicacionTipo",
     "itemAsignado",
     "itemAsignadoId",
+    "tipoMaterialAsignado",
+    "tipoMaterial",
+    "tipoItemAsignado",
+    "estadoLote",
+    "loteEnUso",
+    "estadoTemporal",
     "pesoMaximoMateriaPrima",
     "pesoMaximoMaterialAcondicionamiento",
     "pesoMaximoProductoTerminado",
@@ -125,6 +131,8 @@ function buildRackDocPayload(payload) {
 function buildMovementRecord(payload) {
   return sanitizePayload(payload, [
     "rackId",
+    "rackOrigen",
+    "rackDestino",
     "itemId",
     "tipoMovimiento",
     "fecha",
@@ -133,8 +141,11 @@ function buildMovementRecord(payload) {
     "usuario",
     "nombreItem",
     "tipoItem",
+    "lote",
+    "numeroAnalisis",
     "stockAnterior",
     "stockFinal",
+    "detalle",
     "createdAt",
   ]);
 }
