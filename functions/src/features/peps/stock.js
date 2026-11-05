@@ -68,7 +68,7 @@ function getStockCollection() {
 
 function normalizeRackMaterialType(rack = {}) {
   const type = String(
-    rack.tipoMaterialAsignado ||
+      rack.tipoMaterialAsignado ||
     rack.tipoMaterial ||
     rack.tipoItemAsignado ||
     rack.itemAsignado ||
@@ -94,7 +94,8 @@ function determineRackLotStatus(rack = {}, stockItems = []) {
     };
   }
 
-  const uniqueTypes = [...new Set(activeStock.map((item) => String(item && item.tipoItem || "").trim().toLowerCase()))].filter(Boolean);
+  const uniqueTypes = [...new Set(activeStock.map((item) => String(item && item.tipoItem || "")
+      .trim().toLowerCase()))].filter(Boolean);
   const isLotInUse = uniqueTypes.length > 0 && uniqueTypes.every((type) => type === assignedType);
 
   if (isLotInUse) {
@@ -183,7 +184,8 @@ async function ensureRackExists(rackId) {
 function getRackCapacityMap(rack = {}) {
   return {
     materia_prima: Number(rack.pesoMaximoMateriaPrima ?? rack["pesoMaximo-materiaPrima"] ?? 0),
-    material_acondicionamiento: Number(rack.pesoMaximoMaterialAcondicionamiento ?? rack["pesoMaximo-materialAcondicionamiento"] ?? 0),
+    material_acondicionamiento: Number(rack.pesoMaximoMaterialAcondicionamiento ??
+       rack["pesoMaximo-materialAcondicionamiento"] ?? 0),
     producto_terminado: Number(rack.pesoMaximoProductoTerminado ?? rack["pesoMaximo-productoTerminado"] ?? 0),
   };
 }
@@ -192,8 +194,8 @@ function calculateRackOccupancy(rack = {}, stockItems = []) {
   const capacityByType = getRackCapacityMap(rack);
   const stockByType = Object.keys(capacityByType).reduce((acc, type) => {
     acc[type] = (stockItems || [])
-      .filter((item) => String(item && item.tipoItem || "") === type)
-      .reduce((total, item) => total + Number(item && item.cantidadActual || 0), 0);
+        .filter((item) => String(item && item.tipoItem || "") === type)
+        .reduce((total, item) => total + Number(item && item.cantidadActual || 0), 0);
     return acc;
   }, {});
 
@@ -203,10 +205,10 @@ function calculateRackOccupancy(rack = {}, stockItems = []) {
   }, {});
 
   const espacioOcupado = Number(
-    Math.min(
-      100,
-      Object.values(ocupacionPorTipo).reduce((sum, value) => sum + Number(value || 0), 0),
-    ).toFixed(2),
+      Math.min(
+          100,
+          Object.values(ocupacionPorTipo).reduce((sum, value) => sum + Number(value || 0), 0),
+      ).toFixed(2),
   );
 
   return {
@@ -225,7 +227,8 @@ async function syncRackOccupancy(rackId, rackOverride = null, stockItemsOverride
   }
 
   const rackData = rackSnapshot.data() || {};
-  const stockItems = stockItemsOverride ?? (await getStockCollection().where("rackId", "==", rackId).get()).docs.map((doc) => ({id: doc.id, ...doc.data()}));
+  const stockItems = stockItemsOverride ?? (await getStockCollection().where("rackId", "==", rackId).get())
+      .docs.map((doc) => ({id: doc.id, ...doc.data()}));
   const occupancy = calculateRackOccupancy(rackData, stockItems);
   const lotStatus = determineRackLotStatus(rackData, stockItems);
 
@@ -251,18 +254,18 @@ async function syncRackOccupancy(rackId, rackOverride = null, stockItemsOverride
 
 async function getStockLinesByRackAndItem(rackId, itemId) {
   const snapshot = await getStockCollection()
-    .where("rackId", "==", rackId)
-    .where("itemId", "==", String(itemId).trim())
-    .get();
+      .where("rackId", "==", rackId)
+      .where("itemId", "==", String(itemId).trim())
+      .get();
 
   return snapshot.docs
-    .map((doc) => ({id: doc.id, ...doc.data()}))
-    .filter((row) => Number(row && row.cantidadActual || 0) > 0)
-    .sort((a, b) => {
-      const orderA = String(a.fechaEntrada || a.fechaCreacion || "");
-      const orderB = String(b.fechaEntrada || b.fechaCreacion || "");
-      return orderA.localeCompare(orderB) || String(a.id || "").localeCompare(String(b.id || ""));
-    });
+      .map((doc) => ({id: doc.id, ...doc.data()}))
+      .filter((row) => Number(row && row.cantidadActual || 0) > 0)
+      .sort((a, b) => {
+        const orderA = String(a.fechaEntrada || a.fechaCreacion || "");
+        const orderB = String(b.fechaEntrada || b.fechaCreacion || "");
+        return orderA.localeCompare(orderB) || String(a.id || "").localeCompare(String(b.id || ""));
+      });
 }
 
 const crearStock = makeApiHandler(async (request) => {
@@ -283,13 +286,13 @@ const crearStock = makeApiHandler(async (request) => {
 
     let stock;
     const exactMatch = await collection
-      .where("rackId", "==", rackId)
-      .where("itemId", "==", itemId)
-      .where("tipoItem", "==", tipoItem)
-      .where("lote", "==", lote)
-      .where("numeroAnalisis", "==", numeroAnalisis)
-      .limit(1)
-      .get();
+        .where("rackId", "==", rackId)
+        .where("itemId", "==", itemId)
+        .where("tipoItem", "==", tipoItem)
+        .where("lote", "==", lote)
+        .where("numeroAnalisis", "==", numeroAnalisis)
+        .limit(1)
+        .get();
 
     if (!exactMatch.empty) {
       const existingDoc = exactMatch.docs[0];
@@ -301,7 +304,8 @@ const crearStock = makeApiHandler(async (request) => {
         nombreItem: payload.nombreItem || existing.nombreItem,
         fechaActualizacion: new Date().toISOString(),
       });
-      stock = {id: existingDoc.id, ...existing, cantidadActual: updatedCantidad, unidad: payload.unidad || existing.unidad || "", nombreItem: payload.nombreItem || existing.nombreItem};
+      stock = {id: existingDoc.id, ...existing, cantidadActual: updatedCantidad, unidad: payload.unidad ||
+         existing.unidad || "", nombreItem: payload.nombreItem || existing.nombreItem};
     } else {
       const ref = collection.doc();
       stock = {
@@ -367,11 +371,11 @@ const actualizarCantidadStock = makeApiHandler(async (request) => {
       ref = getStockCollection().doc(stockId);
     } else {
       const matches = await getStockCollection()
-        .where("rackId", "==", rackId)
-        .where("itemId", "==", String(payload.itemId).trim())
-        .orderBy("fechaEntrada", "asc")
-        .limit(1)
-        .get();
+          .where("rackId", "==", rackId)
+          .where("itemId", "==", String(payload.itemId).trim())
+          .orderBy("fechaEntrada", "asc")
+          .limit(1)
+          .get();
       if (matches.empty) {
         throw new Error("No existe stock para este rack e item.");
       }
@@ -437,9 +441,9 @@ const eliminarStock = makeApiHandler(async (request) => {
     }
 
     const matches = await getStockCollection()
-      .where("rackId", "==", rackId)
-      .where("itemId", "==", String(payload.itemId).trim())
-      .get();
+        .where("rackId", "==", rackId)
+        .where("itemId", "==", String(payload.itemId).trim())
+        .get();
 
     if (matches.empty) {
       throw new Error("No existe stock para este rack e item.");
@@ -514,8 +518,8 @@ const obtenerStockPEPS = makeApiHandler(async (request) => {
 
     const snapshot = await query.get();
     const stock = snapshot.docs
-      .map((doc) => ({id: doc.id, ...doc.data()}))
-      .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
+        .map((doc) => ({id: doc.id, ...doc.data()}))
+        .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
     return getDefaultResponse(true, stock, "Stock PEPS obtenido");
   } catch (error) {
     return getDefaultResponse(false, [], error.message || "Error obteniendo stock PEPS");
@@ -530,12 +534,12 @@ const obtenerStockPorRack = makeApiHandler(async (request) => {
       throw new Error("Debe indicar el rackId.");
     }
     const snapshot = await getStockCollection()
-      .where("rackId", "==", rackId)
-      .get();
+        .where("rackId", "==", rackId)
+        .get();
     const stock = snapshot.docs
-      .map((doc) => ({id: doc.id, ...doc.data()}))
-      .filter((item) => Number(item.cantidadActual || 0) > 0)
-      .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
+        .map((doc) => ({id: doc.id, ...doc.data()}))
+        .filter((item) => Number(item.cantidadActual || 0) > 0)
+        .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
     return getDefaultResponse(true, stock, "Stock por rack obtenido");
   } catch (error) {
     return getDefaultResponse(false, [], error.message || "Error obteniendo stock por rack");
@@ -565,9 +569,12 @@ const obtenerOcupacionRack = makeApiHandler(async (request) => {
       rackId,
       capacidad: getRackCapacityMap(rack),
       stockActual: {
-        materia_prima: stockItems.filter((item) => item.tipoItem === "materia_prima").reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0),
-        material_acondicionamiento: stockItems.filter((item) => item.tipoItem === "material_acondicionamiento").reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0),
-        producto_terminado: stockItems.filter((item) => item.tipoItem === "producto_terminado").reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0),
+        materia_prima: stockItems.filter((item) => item.tipoItem === "materia_prima")
+            .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0),
+        material_acondicionamiento: stockItems.filter((item) => item.tipoItem === "material_acondicionamiento")
+            .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0),
+        producto_terminado: stockItems.filter((item) => item.tipoItem === "producto_terminado")
+            .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0),
       },
       ocupacionPorTipo: occupancy.ocupacionPorTipo,
       espacioOcupado: occupancy.espacioOcupado,
@@ -642,7 +649,7 @@ const descontarStockPEPS = makeApiHandler(async (request) => {
     }
 
     const remainingTotal = (await getStockLinesByRackAndItem(rackId, itemId))
-      .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0);
+        .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0);
 
     await registrarMovimientoStock({
       rackId,
@@ -693,9 +700,9 @@ const trasladarStockPEPS = makeApiHandler(async (request) => {
     }
 
     const destinoMatches = await getStockCollection()
-      .where("rackId", "==", rackDestino)
-      .where("itemId", "==", String(payload.itemId).trim())
-      .get();
+        .where("rackId", "==", rackDestino)
+        .where("itemId", "==", String(payload.itemId).trim())
+        .get();
 
     const destinoMap = new Map();
     destinoMatches.docs.forEach((doc) => {
@@ -780,9 +787,9 @@ const trasladarStockPEPS = makeApiHandler(async (request) => {
     }
 
     const stockOrigenFinal = (await getStockLinesByRackAndItem(rackOrigen, payload.itemId))
-      .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0);
+        .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0);
     const stockDestinoFinal = (await getStockLinesByRackAndItem(rackDestino, payload.itemId))
-      .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0);
+        .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0);
 
     await registrarMovimientoStock({
       rackId: rackDestino,
@@ -823,9 +830,9 @@ const suscribirStock = makeApiHandler(async (request) => {
     }
     const snapshot = await query.get();
     const stock = snapshot.docs
-      .map((doc) => ({id: doc.id, ...doc.data()}))
-      .filter((item) => Number(item.cantidadActual || 0) > 0)
-      .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
+        .map((doc) => ({id: doc.id, ...doc.data()}))
+        .filter((item) => Number(item.cantidadActual || 0) > 0)
+        .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
     return getDefaultResponse(true, stock, rackId ?
       "Stock del rack obtenido en tiempo real" :
       "Stock disponible en Firestore real-time");
@@ -842,9 +849,9 @@ const suscribirStockPorRack = makeApiHandler(async (request) => {
       await getStockCollection().get();
 
     const stock = snapshot.docs
-      .map((doc) => ({id: doc.id, ...doc.data()}))
-      .filter((item) => Number(item.cantidadActual || 0) > 0)
-      .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
+        .map((doc) => ({id: doc.id, ...doc.data()}))
+        .filter((item) => Number(item.cantidadActual || 0) > 0)
+        .sort((a, b) => String(a.fechaEntrada || "").localeCompare(String(b.fechaEntrada || "")));
     return getDefaultResponse(true, stock, "Suscripción de stock por rack disponible en Firestore real-time");
   } catch (error) {
     return getDefaultResponse(false, [], error.message || "Error consultando stock por rack");
