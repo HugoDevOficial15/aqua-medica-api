@@ -122,15 +122,20 @@ async function registrarMovimientoStock(movement) {
     ...movement,
     cantidad: Number(movement && movement.cantidad !== undefined ? movement.cantidad : 0),
     observacion: movement && movement.observacion ? String(movement.observacion) : "",
+    ubicacionDestino: movement && (movement.ubicacionDestino || movement.UbicacionDestino) || null,
+    UbicacionDestino: movement && (movement.UbicacionDestino || movement.ubicacionDestino) || null,
     usuario: movement && movement.usuario ? movement.usuario : {id: "system", nombre: "Sistema"},
   };
 
   if (baseMovement.tipoMovimiento === "traslado" && baseMovement.rackOrigen && baseMovement.rackDestino) {
     const parentId = `mov_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const rackOrigenNumero = baseMovement.rackOrigenNumero || "sin número";
+    const rackDestinoNumero = baseMovement.rackDestinoNumero || "sin número";
     const salida = {
       ...baseMovement,
       id: `${parentId}_salida`,
       rackId: baseMovement.rackOrigen,
+      rackNumero: baseMovement.rackOrigenNumero || baseMovement.rackNumero || null,
       rackOrigenId: baseMovement.rackOrigen,
       rackDestinoId: baseMovement.rackDestino,
       rackDestinoNumero: baseMovement.rackDestinoNumero || null,
@@ -139,12 +144,13 @@ async function registrarMovimientoStock(movement) {
       ubicacionDestino: baseMovement.ubicacionDestino || null,
       direccion: "salida",
       movimientoRelacion: parentId,
-      observacion: `Traslado saliente del rack ${baseMovement.rackOrigen} hacia ${baseMovement.rackDestino}`,
+      observacion: `Traslado saliente del rack ${rackOrigenNumero} hacia el rack ${rackDestinoNumero}`,
     };
     const entrada = {
       ...baseMovement,
       id: `${parentId}_entrada`,
       rackId: baseMovement.rackDestino,
+      rackNumero: baseMovement.rackDestinoNumero || baseMovement.rackNumero || null,
       rackOrigenId: baseMovement.rackOrigen,
       rackDestinoId: baseMovement.rackDestino,
       rackDestinoNumero: baseMovement.rackDestinoNumero || null,
@@ -153,7 +159,7 @@ async function registrarMovimientoStock(movement) {
       ubicacionDestino: baseMovement.ubicacionDestino || null,
       direccion: "entrada",
       movimientoRelacion: parentId,
-      observacion: `Traslado entrante al rack ${baseMovement.rackDestino} desde ${baseMovement.rackOrigen}`,
+      observacion: `Traslado entrante al rack ${rackDestinoNumero} desde el rack ${rackOrigenNumero}`,
     };
 
     const salidaRef = db.collection(MOVEMENTS_COLLECTION).doc(salida.id);
@@ -299,9 +305,23 @@ const crearStock = makeApiHandler(async (request) => {
         cantidadActual: updatedCantidad,
         unidad: payload.unidad || existing.unidad || "",
         nombreItem: payload.nombreItem || existing.nombreItem,
+        fechaCaducidad: payload.fechaCaducidad || existing.fechaCaducidad || null,
+        color: payload.color || existing.color || "",
+        color2: payload.color2 || existing.color2 || "",
+        createdBy: payload.createdBy || existing.createdBy || payload.usuario || null,
         fechaActualizacion: new Date().toISOString(),
       });
-      stock = {id: existingDoc.id, ...existing, cantidadActual: updatedCantidad, unidad: payload.unidad || existing.unidad || "", nombreItem: payload.nombreItem || existing.nombreItem};
+      stock = {
+        id: existingDoc.id,
+        ...existing,
+        cantidadActual: updatedCantidad,
+        unidad: payload.unidad || existing.unidad || "",
+        nombreItem: payload.nombreItem || existing.nombreItem,
+        fechaCaducidad: payload.fechaCaducidad || existing.fechaCaducidad || null,
+        color: payload.color || existing.color || "",
+        color2: payload.color2 || existing.color2 || "",
+        createdBy: payload.createdBy || existing.createdBy || payload.usuario || null,
+      };
     } else {
       const ref = collection.doc();
       stock = {
@@ -317,6 +337,8 @@ const crearStock = makeApiHandler(async (request) => {
         color: payload.color || "",
         color2: payload.color2 || "",
         fechaEntrada: normalizeDate(payload.fechaEntrada || new Date(), new Date()),
+        fechaCaducidad: payload.fechaCaducidad || null,
+        createdBy: payload.createdBy || payload.usuario || null,
         fechaCreacion: new Date().toISOString(),
         fechaActualizacion: new Date().toISOString(),
       };
@@ -336,14 +358,30 @@ const crearStock = makeApiHandler(async (request) => {
       itemId,
       nombreItem: payload.nombreItem,
       tipoItem,
-      cantidad: cantidad,
+      stockId: stock.id,
+      rackNumero: payload.rackNumero || (rackSnapshot.exists ? rackSnapshot.data().numeroRack : rackId),
+      rackDestinoNumero: payload.rackNumero || (rackSnapshot.exists ? rackSnapshot.data().numeroRack : rackId),
+      ubicacionDestino: payload.ubicacionDestino || null,
+      unidad: payload.unidad || stock.unidad || "",
+      fechaCaducidad: payload.fechaCaducidad || stock.fechaCaducidad || null,
+      cantidad,
       lote,
       numeroAnalisis,
+      color: payload.color || stock.color || "",
+      color2: payload.color2 || stock.color2 || "",
+      fecha: payload.fechaEntrada || new Date().toISOString().slice(0, 10),
       tipoMovimiento: "entrada",
       observacion: "Entrada de material registrada por sistema",
       usuario: payload.usuario || {id: "system", nombre: "Sistema"},
-      stockAnterior: 0,
+      stockAnterior: Number(stock.cantidadActual || 0) - cantidad,
       stockFinal: Number(stock.cantidadActual || 0),
+      detalle: [{
+        stockId: stock.id,
+        lote,
+        numeroAnalisis,
+        cantidad,
+        unidad: payload.unidad || stock.unidad || "",
+      }],
     });
 
     return getDefaultResponse(true, stock, "Stock creado correctamente");
@@ -624,7 +662,14 @@ const descontarStockPEPS = makeApiHandler(async (request) => {
 
       detalle.push({
         stockId: line.id,
+        nombreItem: line.nombreItem || "",
+        tipoItem: line.tipoItem || "",
         lote: line.lote || "",
+        numeroAnalisis: line.numeroAnalisis || "",
+        unidad: line.unidad || "",
+        fechaCaducidad: line.fechaCaducidad || null,
+        color: line.color || "",
+        color2: line.color2 || "",
         cantidadDescontada,
       });
     }
@@ -647,12 +692,20 @@ const descontarStockPEPS = makeApiHandler(async (request) => {
     await registrarMovimientoStock({
       rackId,
       itemId,
-      nombreItem: detalle[0] && detalle[0].nombreItem ? detalle[0].nombreItem : payload.nombreItem || "",
-      tipoItem: payload.tipoItem || "",
+      rackNumero: payload.rackNumero || rackSnapshot.data()?.numeroRack || rackId,
+      nombreItem: payload.nombreItem || detalle[0]?.nombreItem || "",
+      tipoItem: payload.tipoItem || detalle[0]?.tipoItem || "",
       cantidad: cantidadSalida,
       lote: detalle.map((entry) => entry.lote).filter(Boolean).join(", ") || payload.lote || "",
+      numeroAnalisis: [...new Set(detalle.map((entry) => entry.numeroAnalisis).filter(Boolean))].join(", "),
+      unidad: payload.unidad || detalle[0]?.unidad || "",
+      fechaCaducidad: detalle[0]?.fechaCaducidad || null,
+      color: detalle[0]?.color || "",
+      color2: detalle[0]?.color2 || "",
+      ubicacionOrigen: payload.ubicacionOrigen || null,
+      fecha: payload.fecha || new Date().toISOString().slice(0, 10),
       tipoMovimiento: "salida",
-      observacion: `Salida de stock por FIFO desde rack ${rackId}`,
+      observacion: payload.observacion !== undefined ? String(payload.observacion) : "",
       usuario: payload.usuario || {id: "system", nombre: "Sistema"},
       stockAnterior: cantidadSalida + remainingTotal,
       stockFinal: remainingTotal,
@@ -706,6 +759,7 @@ const trasladarStockPEPS = makeApiHandler(async (request) => {
 
     let remaining = cantidad;
     const db = getDb();
+    const detalle = [];
 
     for (const line of sourceLines) {
       if (remaining <= 0) {
@@ -718,6 +772,15 @@ const trasladarStockPEPS = makeApiHandler(async (request) => {
 
       const cantidadTransferida = Math.min(currentCantidad, remaining);
       remaining -= cantidadTransferida;
+      detalle.push({
+        stockId: line.id,
+        nombreItem: line.nombreItem || "",
+        tipoItem: line.tipoItem || "",
+        lote: line.lote || "",
+        numeroAnalisis: line.numeroAnalisis || "",
+        unidad: line.unidad || "",
+        cantidad: cantidadTransferida,
+      });
       const sourceRef = db.collection(STOCK_COLLECTION).doc(line.id);
       const nuevoOrigen = currentCantidad - cantidadTransferida;
 
@@ -752,6 +815,8 @@ const trasladarStockPEPS = makeApiHandler(async (request) => {
           color: line.color || "",
           color2: line.color2 || "",
           fechaEntrada: line.fechaEntrada || normalizeDate(new Date(), new Date()),
+          fechaCaducidad: line.fechaCaducidad || null,
+          createdBy: line.createdBy || null,
           fechaCreacion: line.fechaCreacion || new Date().toISOString(),
           fechaActualizacion: new Date().toISOString(),
         });
@@ -784,20 +849,52 @@ const trasladarStockPEPS = makeApiHandler(async (request) => {
     const stockDestinoFinal = (await getStockLinesByRackAndItem(rackDestino, payload.itemId))
       .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0);
 
+    const rackOrigenData = rackOrigenSnapshot.exists ? rackOrigenSnapshot.data() || {} : {};
+    const rackDestinoData = rackDestinoSnapshot.exists ? rackDestinoSnapshot.data() || {} : {};
+    const rackOrigenNumero = payload.rackOrigenNumero || rackOrigenData.numeroRack || rackOrigen;
+    const rackDestinoNumero = payload.rackDestinoNumero || rackDestinoData.numeroRack || rackDestino;
+    const ubicacionOrigen = payload.ubicacionOrigen || {
+      numeroRack: rackOrigenNumero,
+      ubicacionTipo: rackOrigenData.ubicacionTipo || "rack",
+      planta: rackOrigenData.planta || "",
+    };
+    const ubicacionDestino = payload.ubicacionDestino || payload.UbicacionDestino ||
+      {
+        numeroRack: rackDestinoNumero,
+        ubicacionTipo: rackDestinoData.ubicacionTipo || "rack",
+        planta: rackDestinoData.planta || "",
+      };
+    const lotes = [...new Set(detalle.map((line) => String(line.lote || "").trim()).filter(Boolean))];
+    const numerosAnalisis = [...new Set(detalle.map((line) => String(line.numeroAnalisis || "").trim()).filter(Boolean))];
+
     await registrarMovimientoStock({
       rackId: rackDestino,
+      rackNumero: rackDestinoNumero,
       rackOrigen,
       rackDestino,
+      rackOrigenId: rackOrigen,
+      rackDestinoId: rackDestino,
+      stockId: detalle[0]?.stockId || null,
       itemId: String(payload.itemId).trim(),
-      nombreItem: payload.nombreItem || "",
-      tipoItem: payload.tipoItem || "",
+      nombreItem: payload.nombreItem || detalle[0]?.nombreItem || sourceLines[0].nombreItem || "",
+      tipoItem: payload.tipoItem || detalle[0]?.tipoItem || sourceLines[0].tipoItem || "",
       cantidad,
-      lote: payload.lote || "",
+      lote: payload.lote || lotes.join(", "),
+      numeroAnalisis: numerosAnalisis.join(", "),
+      unidad: payload.unidad || detalle[0]?.unidad || "",
+      rackOrigenNumero,
+      rackDestinoNumero,
+      rackOrigenTipo: rackOrigenData.ubicacionTipo || "rack",
+      rackDestinoTipo: rackDestinoData.ubicacionTipo || "rack",
+      ubicacionOrigen,
+      ubicacionDestino,
+      UbicacionDestino: ubicacionDestino,
       tipoMovimiento: "traslado",
-      observacion: `Traslado de stock del rack ${rackOrigen} al rack ${rackDestino}`,
+      observacion: `Traslado de stock del rack ${rackOrigenNumero} al rack ${rackDestinoNumero}`,
       usuario: payload.usuario || {id: "system", nombre: "Sistema"},
       stockAnterior: stockOrigenFinal + cantidad,
       stockFinal: stockDestinoFinal,
+      detalle,
     });
 
     return getDefaultResponse(true, {

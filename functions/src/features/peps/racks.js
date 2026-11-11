@@ -179,7 +179,9 @@ const registrarMovimiento = makeApiHandler(async (request) => {
       ...payload,
       cantidad: Number(payload.cantidad),
       fecha: normalizeDate(payload.fecha || new Date(), new Date()),
-      observacion: payload.observacion || "",
+      observacion: payload.observacion || payload.observaciones || "",
+      ubicacionDestino: payload.ubicacionDestino || payload.UbicacionDestino || null,
+      UbicacionDestino: payload.UbicacionDestino || payload.ubicacionDestino || null,
       usuario: payload.usuario || {id: "system", nombre: "Sistema"},
       createdAt: new Date().toISOString(),
     };
