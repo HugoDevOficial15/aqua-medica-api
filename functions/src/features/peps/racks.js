@@ -221,7 +221,7 @@ const obtenerMovimientosPorFecha = makeApiHandler(async (request) => {
     const start = normalizeDate(fechaInicio || new Date(), new Date());
     const end = normalizeDate(fechaFin || new Date(), new Date());
     const snapshot = await getDb().collection(MOVEMENTS_COLLECTION)
-        .where("rackId", "==", rackId)  
+        .where("rackId", "==", rackId)
         .where("fecha", ">=", start)
         .where("fecha", "<=", end)
         .orderBy("fecha", "desc")
