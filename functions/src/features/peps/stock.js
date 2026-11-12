@@ -871,7 +871,8 @@ const trasladarStockPEPS = makeApiHandler(async (request) => {
         planta: rackDestinoData.planta || "",
       };
     const lotes = [...new Set(detalle.map((line) => String(line.lote || "").trim()).filter(Boolean))];
-    const numerosAnalisis = [...new Set(detalle.map((line) => String(line.numeroAnalisis || "").trim()).filter(Boolean))];
+    const numerosAnalisis = [...new Set(detalle.map((line) => String(line.numeroAnalisis || "")
+        .trim()).filter(Boolean))];
 
     await registrarMovimientoStock({
       rackId: rackDestino,
