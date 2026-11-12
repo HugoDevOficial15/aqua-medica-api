@@ -60,6 +60,7 @@ const {
   buildMovementRecord,
   getRackReference,
   normalizeDate,
+  toLocalIsoString,
   validateRequired,
   validateNumeric,
   getDefaultResponse,
@@ -105,8 +106,8 @@ const crearRack = makeApiHandler(async (request) => {
       espacioOcupado: Number(payload.espacioOcupado || 0),
       ocupacionActual: Number(payload.ocupacionActual || 0),
       capacidadTotal: Number(payload.capacidadTotal || 0),
-      fechaCreacion: new Date().toISOString(),
-      fechaActualizacion: new Date().toISOString(),
+      fechaCreacion: toLocalIsoString(),
+      fechaActualizacion: toLocalIsoString(),
     };
     await ref.set(rack);
     return getDefaultResponse(true, rack, "Rack creado correctamente");
@@ -128,7 +129,7 @@ const actualizarRack = makeApiHandler(async (request) => {
     if (!snapshot.exists) {
       throw new Error("El rack no existe.");
     }
-    payload.fechaActualizacion = new Date().toISOString();
+    payload.fechaActualizacion = toLocalIsoString();
     await ref.update(payload);
     const updated = await ref.get();
     return getDefaultResponse(true, updated.data(), "Rack actualizado");
@@ -183,7 +184,7 @@ const registrarMovimiento = makeApiHandler(async (request) => {
       ubicacionDestino: payload.ubicacionDestino || payload.UbicacionDestino || null,
       UbicacionDestino: payload.UbicacionDestino || payload.ubicacionDestino || null,
       usuario: payload.usuario || {id: "system", nombre: "Sistema"},
-      createdAt: new Date().toISOString(),
+      createdAt: toLocalIsoString(),
     };
     const ref = db.collection(MOVEMENTS_COLLECTION).doc();
     await ref.set({...movement, id: ref.id});

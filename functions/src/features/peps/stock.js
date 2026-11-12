@@ -53,32 +53,83 @@ function makeApiHandler(handler) {
 
 const {
   getDb,
+  ITEM_TYPES,
   STOCK_COLLECTION,
   MOVEMENTS_COLLECTION,
   validateNumeric,
   validateRequired,
   normalizeDate,
+  toLocalIsoString,
+  toLocalDateString,
   getRackReference,
   getDefaultResponse,
 } = require("./utils");
+
+// Tolerancia para residuos de punto flotante en cantidades decimales (p. ej. 0.3 - 0.1 - 0.2).
+// Solo se usa en comparaciones; las cantidades guardadas no se redondean.
+const QUANTITY_TOLERANCE = 1e-9;
+
+function normalizeUsuario(value) {
+  if (typeof value === "string" && value.trim()) {
+    return {id: null, nombre: value.trim()};
+  }
+
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const id = value.id ?? value.uid ?? value.userId ?? null;
+    const nombre = value.nombre || value.name || value.userName || value.displayName || "";
+    if (id || nombre) {
+      return {id, nombre: nombre || String(id)};
+    }
+  }
+
+  return {id: "system", nombre: "Sistema"};
+}
+
+function getPayloadValue(payload, name) {
+  if (!payload || typeof payload !== "object") {
+    return undefined;
+  }
+  if (payload[name] !== undefined) {
+    return payload[name];
+  }
+  const key = Object.keys(payload).find((k) => k.toLowerCase() === name.toLowerCase());
+  return key ? payload[key] : undefined;
+}
 
 function getStockCollection() {
   return getDb().collection(STOCK_COLLECTION);
 }
 
-function normalizeRackMaterialType(rack = {}) {
-  const type = String(
-      rack.tipoMaterialAsignado ||
-    rack.tipoMaterial ||
-    rack.tipoItemAsignado ||
-    rack.itemAsignado ||
-    rack.tipoAsignacion ||
-    rack.tipoAlmacenamiento ||
-    rack.tipoItem ||
-    "",
-  ).trim().toLowerCase();
+function normalizeItemTypeCandidate(value) {
+  return String(value || "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[\s-]+/g, "_");
+}
 
-  return type || "";
+// Solo se aceptan valores que sean un tipo de item válido; nombres de producto u otros
+// valores guardados en campos de mayor prioridad no deben reemplazar la asignación real.
+function normalizeRackMaterialType(rack = {}) {
+  const candidates = [
+    rack.tipoMaterialAsignado,
+    rack.tipoMaterial,
+    rack.tipoItemAsignado,
+    rack.itemAsignado,
+    rack.tipoAsignacion,
+    rack.tipoAlmacenamiento,
+    rack.tipoItem,
+  ];
+
+  for (const candidate of candidates) {
+    const type = normalizeItemTypeCandidate(candidate);
+    if (ITEM_TYPES.includes(type)) {
+      return type;
+    }
+  }
+
+  return "";
 }
 
 function determineRackLotStatus(rack = {}, stockItems = []) {
@@ -87,8 +138,8 @@ function determineRackLotStatus(rack = {}, stockItems = []) {
 
   if (activeStock.length === 0) {
     return {
-      estadoLote: assignedType || "sin_asignacion",
-      loteEnUso: assignedType ? true : false,
+      estadoLote: assignedType ? "normal" : "sin_asignacion",
+      loteEnUso: false,
       estadoTemporal: false,
       tipoAsignacion: assignedType || "",
     };
@@ -119,12 +170,10 @@ async function registrarMovimientoStock(movement) {
   const db = getDb();
   const baseMovement = {
     fecha: normalizeDate(movement && movement.fecha ? movement.fecha : new Date(), new Date()),
-    createdAt: new Date().toISOString(),
+    createdAt: toLocalIsoString(),
     ...movement,
     cantidad: Number(movement && movement.cantidad !== undefined ? movement.cantidad : 0),
     observacion: movement && movement.observacion ? String(movement.observacion) : "",
-    ubicacionDestino: movement && (movement.ubicacionDestino || movement.UbicacionDestino) || null,
-    UbicacionDestino: movement && (movement.UbicacionDestino || movement.ubicacionDestino) || null,
     usuario: movement && movement.usuario ? movement.usuario : {id: "system", nombre: "Sistema"},
   };
 
@@ -206,15 +255,13 @@ function calculateRackOccupancy(rack = {}, stockItems = []) {
   }, {});
 
   const ocupacionPorTipo = Object.entries(capacityByType).reduce((acc, [type, capacity]) => {
-    acc[type] = Number(capacity > 0 ? ((stockByType[type] / capacity) * 100).toFixed(2) : 0);
+    acc[type] = capacity > 0 ? (stockByType[type] / capacity) * 100 : 0;
     return acc;
   }, {});
 
-  const espacioOcupado = Number(
-      Math.min(
-          100,
-          Object.values(ocupacionPorTipo).reduce((sum, value) => sum + Number(value || 0), 0),
-      ).toFixed(2),
+  const espacioOcupado = Math.min(
+      100,
+      Object.values(ocupacionPorTipo).reduce((sum, value) => sum + value, 0),
   );
 
   return {
@@ -246,7 +293,7 @@ async function syncRackOccupancy(rackId, rackOverride = null, stockItemsOverride
     estadoLote: lotStatus.estadoLote,
     loteEnUso: lotStatus.loteEnUso,
     estadoTemporal: lotStatus.estadoTemporal,
-    fechaActualizacion: new Date().toISOString(),
+    fechaActualizacion: toLocalIsoString(),
   });
 
   return {
@@ -268,8 +315,8 @@ async function getStockLinesByRackAndItem(rackId, itemId) {
       .map((doc) => ({id: doc.id, ...doc.data()}))
       .filter((row) => Number(row && row.cantidadActual || 0) > 0)
       .sort((a, b) => {
-        const orderA = String(a.fechaEntrada || a.fechaCreacion || "");
-        const orderB = String(b.fechaEntrada || b.fechaCreacion || "");
+        const orderA = String(a.fechaCreacion || a.fechaEntrada || "");
+        const orderB = String(b.fechaCreacion || b.fechaEntrada || "");
         return orderA.localeCompare(orderB) || String(a.id || "").localeCompare(String(b.id || ""));
       });
 }
@@ -312,7 +359,7 @@ const crearStock = makeApiHandler(async (request) => {
         color: payload.color || existing.color || "",
         color2: payload.color2 || existing.color2 || "",
         createdBy: payload.createdBy || existing.createdBy || payload.usuario || null,
-        fechaActualizacion: new Date().toISOString(),
+        fechaActualizacion: toLocalIsoString(),
       });
       stock = {
         id: existingDoc.id,
@@ -342,8 +389,8 @@ const crearStock = makeApiHandler(async (request) => {
         fechaEntrada: normalizeDate(payload.fechaEntrada || new Date(), new Date()),
         fechaCaducidad: payload.fechaCaducidad || null,
         createdBy: payload.createdBy || payload.usuario || null,
-        fechaCreacion: new Date().toISOString(),
-        fechaActualizacion: new Date().toISOString(),
+        fechaCreacion: toLocalIsoString(),
+        fechaActualizacion: toLocalIsoString(),
       };
       await ref.set(stock);
     }
@@ -356,15 +403,15 @@ const crearStock = makeApiHandler(async (request) => {
       await syncRackOccupancy(rackId, rack, rackStock);
     }
 
+    const operador = normalizeUsuario(payload.usuario || payload.createdBy);
+
     await registrarMovimientoStock({
       rackId,
-      itemId,
-      nombreItem: payload.nombreItem,
-      tipoItem,
-      stockId: stock.id,
       rackNumero: payload.rackNumero || (rackSnapshot.exists ? rackSnapshot.data().numeroRack : rackId),
       rackDestinoNumero: payload.rackNumero || (rackSnapshot.exists ? rackSnapshot.data().numeroRack : rackId),
       ubicacionDestino: payload.ubicacionDestino || null,
+      itemId: stock.itemId || payload.itemId || "",
+      nombreItem: stock.nombreItem || payload.nombreItem || "",
       unidad: payload.unidad || stock.unidad || "",
       fechaCaducidad: payload.fechaCaducidad || stock.fechaCaducidad || null,
       cantidad,
@@ -372,14 +419,16 @@ const crearStock = makeApiHandler(async (request) => {
       numeroAnalisis,
       color: payload.color || stock.color || "",
       color2: payload.color2 || stock.color2 || "",
-      fecha: payload.fechaEntrada || new Date().toISOString().slice(0, 10),
+      fecha: payload.fechaEntrada || toLocalDateString(),
       tipoMovimiento: "entrada",
-      observacion: "Entrada de material registrada por sistema",
-      usuario: payload.usuario || {id: "system", nombre: "Sistema"},
+      observacion: `Entrada de material registrada por ${operador.nombre}`,
+      usuario: operador,
       stockAnterior: Number(stock.cantidadActual || 0) - cantidad,
       stockFinal: Number(stock.cantidadActual || 0),
       detalle: [{
         stockId: stock.id,
+        itemId: stock.itemId || payload.itemId || "",
+        nombreItem: stock.nombreItem || payload.nombreItem || "",
         lote,
         numeroAnalisis,
         cantidad,
@@ -428,7 +477,7 @@ const actualizarCantidadStock = makeApiHandler(async (request) => {
     const current = snapshot.data() || {};
     await ref.update({
       cantidadActual: cantidad,
-      fechaActualizacion: new Date().toISOString(),
+      fechaActualizacion: toLocalIsoString(),
       nombreItem: payload.nombreItem || current.nombreItem,
       tipoItem: payload.tipoItem || current.tipoItem,
       lote: payload.lote !== undefined ? payload.lote : current.lote,
@@ -528,7 +577,7 @@ const actualizarColorStockPorItem = makeApiHandler(async (request) => {
       batch.update(doc.ref, {
         color: payload.color !== undefined ? payload.color : current.color || "",
         color2: payload.color2 !== undefined ? payload.color2 : current.color2 || "",
-        fechaActualizacion: new Date().toISOString(),
+        fechaActualizacion: toLocalIsoString(),
       });
     });
 
@@ -643,12 +692,12 @@ const descontarStockPEPS = makeApiHandler(async (request) => {
     const db = getDb();
 
     for (const line of stockLines) {
-      if (remaining <= 0) {
+      if (remaining <= QUANTITY_TOLERANCE) {
         break;
       }
 
       const current = Number(line.cantidadActual || 0);
-      if (current <= 0) {
+      if (current <= QUANTITY_TOLERANCE) {
         continue;
       }
 
@@ -657,10 +706,10 @@ const descontarStockPEPS = makeApiHandler(async (request) => {
       const nextQuantity = current - cantidadDescontada;
       const stockRef = db.collection(STOCK_COLLECTION).doc(line.id);
 
-      if (nextQuantity > 0) {
+      if (nextQuantity > QUANTITY_TOLERANCE) {
         await stockRef.update({
           cantidadActual: nextQuantity,
-          fechaActualizacion: new Date().toISOString(),
+          fechaActualizacion: toLocalIsoString(),
         });
       } else {
         await stockRef.delete();
@@ -680,7 +729,7 @@ const descontarStockPEPS = makeApiHandler(async (request) => {
       });
     }
 
-    if (remaining > 0) {
+    if (remaining > QUANTITY_TOLERANCE) {
       throw new Error("No hay stock suficiente para la salida solicitada.");
     }
 
@@ -695,10 +744,18 @@ const descontarStockPEPS = makeApiHandler(async (request) => {
     const remainingTotal = (await getStockLinesByRackAndItem(rackId, itemId))
         .reduce((sum, item) => sum + Number(item.cantidadActual || 0), 0);
 
+    const rackData = rackSnapshot.exists ? rackSnapshot.data() || {} : {};
+    const rackNumero = rackData.numeroRack || rackId;
+    const ubicacionOrigen = getPayloadValue(payload, "ubicacionOrigen") || {
+      numeroRack: rackNumero,
+      ubicacionTipo: rackData.ubicacionTipo || "rack",
+      planta: rackData.planta || "",
+    };
+
     await registrarMovimientoStock({
       rackId,
+      rackNumero: payload.rackNumero || rackNumero,
       itemId,
-      rackNumero: payload.rackNumero || rackSnapshot.data()?.numeroRack || rackId,
       nombreItem: payload.nombreItem || detalle[0]?.nombreItem || "",
       tipoItem: payload.tipoItem || detalle[0]?.tipoItem || "",
       cantidad: cantidadSalida,
@@ -708,10 +765,10 @@ const descontarStockPEPS = makeApiHandler(async (request) => {
       fechaCaducidad: detalle[0]?.fechaCaducidad || null,
       color: detalle[0]?.color || "",
       color2: detalle[0]?.color2 || "",
-      ubicacionOrigen: payload.ubicacionOrigen || null,
-      fecha: payload.fecha || new Date().toISOString().slice(0, 10),
+      ubicacionOrigen,
+      fecha: payload.fecha || toLocalDateString(),
       tipoMovimiento: "salida",
-      observacion: payload.observacion !== undefined ? String(payload.observacion) : "",
+      observacion: String(getPayloadValue(payload, "observacion") ?? getPayloadValue(payload, "observaciones") ?? ""),
       usuario: payload.usuario || {id: "system", nombre: "Sistema"},
       stockAnterior: cantidadSalida + remainingTotal,
       stockFinal: remainingTotal,
@@ -747,7 +804,7 @@ const trasladarStockPEPS = makeApiHandler(async (request) => {
     }
 
     const totalOrigen = sourceLines.reduce((sum, line) => sum + Number(line.cantidadActual || 0), 0);
-    if (totalOrigen < cantidad) {
+    if (totalOrigen + QUANTITY_TOLERANCE < cantidad) {
       throw new Error("No hay suficiente stock en el rack origen para el traslado.");
     }
 
@@ -768,11 +825,11 @@ const trasladarStockPEPS = makeApiHandler(async (request) => {
     const detalle = [];
 
     for (const line of sourceLines) {
-      if (remaining <= 0) {
+      if (remaining <= QUANTITY_TOLERANCE) {
         break;
       }
       const currentCantidad = Number(line.cantidadActual || 0);
-      if (currentCantidad <= 0) {
+      if (currentCantidad <= QUANTITY_TOLERANCE) {
         continue;
       }
 
@@ -790,8 +847,8 @@ const trasladarStockPEPS = makeApiHandler(async (request) => {
       const sourceRef = db.collection(STOCK_COLLECTION).doc(line.id);
       const nuevoOrigen = currentCantidad - cantidadTransferida;
 
-      if (nuevoOrigen > 0) {
-        await sourceRef.update({cantidadActual: nuevoOrigen, fechaActualizacion: new Date().toISOString()});
+      if (nuevoOrigen > QUANTITY_TOLERANCE) {
+        await sourceRef.update({cantidadActual: nuevoOrigen, fechaActualizacion: toLocalIsoString()});
       } else {
         await sourceRef.delete();
       }
@@ -804,7 +861,7 @@ const trasladarStockPEPS = makeApiHandler(async (request) => {
         const nextCantidad = Number(currentDestino.cantidadActual || 0) + cantidadTransferida;
         await destinoRef.update({
           cantidadActual: nextCantidad,
-          fechaActualizacion: new Date().toISOString(),
+          fechaActualizacion: toLocalIsoString(),
         });
       } else {
         const destinoRefNew = db.collection(STOCK_COLLECTION).doc();
@@ -823,13 +880,13 @@ const trasladarStockPEPS = makeApiHandler(async (request) => {
           fechaEntrada: line.fechaEntrada || normalizeDate(new Date(), new Date()),
           fechaCaducidad: line.fechaCaducidad || null,
           createdBy: line.createdBy || null,
-          fechaCreacion: line.fechaCreacion || new Date().toISOString(),
-          fechaActualizacion: new Date().toISOString(),
+          fechaCreacion: line.fechaCreacion || toLocalIsoString(),
+          fechaActualizacion: toLocalIsoString(),
         });
       }
     }
 
-    if (remaining > 0) {
+    if (remaining > QUANTITY_TOLERANCE) {
       throw new Error("No hay suficiente stock en el rack origen para el traslado.");
     }
 

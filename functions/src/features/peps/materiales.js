@@ -59,6 +59,7 @@ const {
   validateRequired,
   normalizeItemType,
   normalizeDate,
+  toLocalIsoString,
   buildItemId,
   getDefaultResponse,
 } = require("./utils");
@@ -123,13 +124,39 @@ async function sincronizarNombreEnStockPorItem({itemId, nombre, tipoItem = null}
   snapshot.docs.forEach((doc) => {
     const update = {
       nombreItem: nombre,
-      fechaActualizacion: new Date().toISOString(),
+      fechaActualizacion: toLocalIsoString(),
     };
 
     if (tipoItem) {
       update.tipoItem = tipoItem;
     }
 
+    batch.update(doc.ref, update);
+  });
+
+  await batch.commit();
+  return snapshot.docs.length;
+}
+
+async function sincronizarColorEnStockPorItem({itemId, color, color2}) {
+  const db = getDb();
+  const snapshot = await db.collection("pepsRackStock")
+      .where("itemId", "==", itemId)
+      .get();
+
+  if (snapshot.empty) {
+    return 0;
+  }
+
+  const batch = db.batch();
+  snapshot.docs.forEach((doc) => {
+    const update = {fechaActualizacion: toLocalIsoString()};
+    if (color !== undefined) {
+      update.color = color;
+    }
+    if (color2 !== undefined) {
+      update.color2 = color2;
+    }
     batch.update(doc.ref, update);
   });
 
@@ -166,10 +193,10 @@ function buildItemPayload(data) {
   }
 
   if (!payload.fechaCreacion) {
-    payload.fechaCreacion = new Date().toISOString();
+    payload.fechaCreacion = toLocalIsoString();
   }
   if (!payload.fechaActualizacion) {
-    payload.fechaActualizacion = new Date().toISOString();
+    payload.fechaActualizacion = toLocalIsoString();
   }
   return payload;
 }
@@ -189,8 +216,8 @@ const crearMateriaPrima = makeApiHandler(async (request) => {
     const item = {
       ...payload,
       itemId: payload.id,
-      fechaCreacion: payload.fechaCreacion || new Date().toISOString(),
-      fechaActualizacion: new Date().toISOString(),
+            fechaCreacion: payload.fechaCreacion || toLocalIsoString(),
+            fechaActualizacion: toLocalIsoString(),
     };
     await ref.set(item);
     return getDefaultResponse(true, item, "Materia prima creada correctamente");
@@ -230,7 +257,7 @@ const actualizarMateriaPrima = makeApiHandler(async (request) => {
     }
     const payload = buildItemPayload(updates || {});
     payload.tipo = "materia_prima";
-    payload.fechaActualizacion = new Date().toISOString();
+    payload.fechaActualizacion = toLocalIsoString();
     await ref.update(payload);
 
     if (typeof payload.nombre === "string" && payload.nombre.trim()) {
@@ -239,6 +266,10 @@ const actualizarMateriaPrima = makeApiHandler(async (request) => {
         nombre: payload.nombre.trim(),
         tipoItem: payload.tipo || null,
       });
+    }
+
+    if (payload.color !== undefined || payload.color2 !== undefined) {
+      await sincronizarColorEnStockPorItem({itemId: id, color: payload.color, color2: payload.color2});
     }
 
     const updated = await ref.get();
@@ -278,8 +309,8 @@ const crearAcondicionamiento = makeApiHandler(async (request) => {
     const item = {
       ...payload,
       itemId: payload.id,
-      fechaCreacion: payload.fechaCreacion || new Date().toISOString(),
-      fechaActualizacion: new Date().toISOString(),
+            fechaCreacion: payload.fechaCreacion || toLocalIsoString(),
+            fechaActualizacion: toLocalIsoString(),
     };
     await ref.set(item);
     return getDefaultResponse(true, item, "Material de acondicionamiento creado correctamente");
@@ -318,7 +349,7 @@ const actualizarAcondicionamiento = makeApiHandler(async (request) => {
     }
     const payload = buildItemPayload(updates || {});
     payload.tipo = "material_acondicionamiento";
-    payload.fechaActualizacion = new Date().toISOString();
+    payload.fechaActualizacion = toLocalIsoString();
     await ref.update(payload);
 
     if (typeof payload.nombre === "string" && payload.nombre.trim()) {
@@ -327,6 +358,10 @@ const actualizarAcondicionamiento = makeApiHandler(async (request) => {
         nombre: payload.nombre.trim(),
         tipoItem: payload.tipo || null,
       });
+    }
+
+    if (payload.color !== undefined || payload.color2 !== undefined) {
+      await sincronizarColorEnStockPorItem({itemId: id, color: payload.color, color2: payload.color2});
     }
 
     const updated = await ref.get();
@@ -351,8 +386,8 @@ const crearProducto = makeApiHandler(async (request) => {
     const item = {
       ...payload,
       itemId: payload.id,
-      fechaCreacion: payload.fechaCreacion || new Date().toISOString(),
-      fechaActualizacion: new Date().toISOString(),
+            fechaCreacion: payload.fechaCreacion || toLocalIsoString(),
+            fechaActualizacion: toLocalIsoString(),
     };
     await ref.set(item);
     return getDefaultResponse(true, item, "Producto creado correctamente");
@@ -391,7 +426,7 @@ const actualizarProducto = makeApiHandler(async (request) => {
     }
     const payload = buildItemPayload(updates || {});
     payload.tipo = "producto_terminado";
-    payload.fechaActualizacion = new Date().toISOString();
+    payload.fechaActualizacion = toLocalIsoString();
     await ref.update(payload);
 
     if (typeof payload.nombre === "string" && payload.nombre.trim()) {
@@ -400,6 +435,10 @@ const actualizarProducto = makeApiHandler(async (request) => {
         nombre: payload.nombre.trim(),
         tipoItem: payload.tipo || null,
       });
+    }
+
+    if (payload.color !== undefined || payload.color2 !== undefined) {
+      await sincronizarColorEnStockPorItem({itemId: id, color: payload.color, color2: payload.color2});
     }
 
     const updated = await ref.get();

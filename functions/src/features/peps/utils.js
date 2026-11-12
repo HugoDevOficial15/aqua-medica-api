@@ -84,9 +84,29 @@ function normalizeItemType(tipo) {
   return candidate;
 }
 
+// Hora local de la operación (México, UTC-6, sin horario de verano desde 2022).
+const LOCAL_UTC_OFFSET_MINUTES = -6 * 60;
+
+function toLocalIsoString(date = new Date()) {
+  const local = new Date(date.getTime() + LOCAL_UTC_OFFSET_MINUTES * 60000);
+  const absOffset = Math.abs(LOCAL_UTC_OFFSET_MINUTES);
+  const sign = LOCAL_UTC_OFFSET_MINUTES < 0 ? "-" : "+";
+  const hh = String(Math.floor(absOffset / 60)).padStart(2, "0");
+  const mm = String(absOffset % 60).padStart(2, "0");
+  return `${local.toISOString().slice(0, -1)}${sign}${hh}:${mm}`;
+}
+
+function toLocalDateString(date = new Date()) {
+  return toLocalIsoString(date).slice(0, 10);
+}
+
 function normalizeDate(value, fallbackDate = new Date()) {
   if (!value) {
-    return new Date(fallbackDate).toISOString().slice(0, 10);
+    return toLocalDateString(new Date(fallbackDate));
+  }
+
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
   }
 
   const date = new Date(value);
@@ -94,7 +114,7 @@ function normalizeDate(value, fallbackDate = new Date()) {
     throw new Error("Fecha inválida.");
   }
 
-  return date.toISOString().slice(0, 10);
+  return toLocalDateString(date);
 }
 
 function buildItemId(prefix = "item") {
@@ -200,6 +220,8 @@ module.exports = {
   validateNumeric,
   normalizeItemType,
   normalizeDate,
+  toLocalIsoString,
+  toLocalDateString,
   buildItemId,
   buildRackDocPayload,
   buildMovementRecord,
