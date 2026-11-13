@@ -216,8 +216,8 @@ const crearMateriaPrima = makeApiHandler(async (request) => {
     const item = {
       ...payload,
       itemId: payload.id,
-            fechaCreacion: payload.fechaCreacion || toLocalIsoString(),
-            fechaActualizacion: toLocalIsoString(),
+      fechaCreacion: payload.fechaCreacion || toLocalIsoString(),
+      fechaActualizacion: toLocalIsoString(),
     };
     await ref.set(item);
     return getDefaultResponse(true, item, "Materia prima creada correctamente");
@@ -309,8 +309,8 @@ const crearAcondicionamiento = makeApiHandler(async (request) => {
     const item = {
       ...payload,
       itemId: payload.id,
-            fechaCreacion: payload.fechaCreacion || toLocalIsoString(),
-            fechaActualizacion: toLocalIsoString(),
+      fechaCreacion: payload.fechaCreacion || toLocalIsoString(),
+      fechaActualizacion: toLocalIsoString(),
     };
     await ref.set(item);
     return getDefaultResponse(true, item, "Material de acondicionamiento creado correctamente");
@@ -386,8 +386,8 @@ const crearProducto = makeApiHandler(async (request) => {
     const item = {
       ...payload,
       itemId: payload.id,
-            fechaCreacion: payload.fechaCreacion || toLocalIsoString(),
-            fechaActualizacion: toLocalIsoString(),
+      fechaCreacion: payload.fechaCreacion || toLocalIsoString(),
+      fechaActualizacion: toLocalIsoString(),
     };
     await ref.set(item);
     return getDefaultResponse(true, item, "Producto creado correctamente");
